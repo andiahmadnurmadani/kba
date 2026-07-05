@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"kroombox-backup-agent/tui"
@@ -56,10 +57,13 @@ func RunInteractive() error {
 	}
 	fmt.Println()
 	fmt.Print("  Select backup [1]: ")
-	var n int
-	fmt.Scanf("%d\n", &n)
-	if n < 1 || n > len(backups) {
-		n = 1
+	nStr, _ := reader.ReadString('\n')
+	nStr = strings.TrimSpace(nStr)
+	n := 1
+	if nStr != "" {
+		if parsed, err := strconv.Atoi(nStr); err == nil && parsed >= 1 && parsed <= len(backups) {
+			n = parsed
+		}
 	}
 	selected := backups[n-1]
 	fmt.Printf("  Selected: %s (%s)\n", selected.Date, selected.Size)
@@ -123,8 +127,14 @@ func RunInteractive() error {
 	fmt.Println("  2) Restore to a custom folder (dry-run / preview)")
 	fmt.Println()
 	fmt.Print("  Choice [1]: ")
-	var destChoice int
-	fmt.Scanf("%d\n", &destChoice)
+	dcStr, _ := reader.ReadString('\n')
+	dcStr = strings.TrimSpace(dcStr)
+	destChoice := 1
+	if dcStr != "" {
+		if parsed, err := strconv.Atoi(dcStr); err == nil {
+			destChoice = parsed
+		}
+	}
 
 	customDest := ""
 	if destChoice == 2 {
@@ -135,10 +145,21 @@ func RunInteractive() error {
 		if customDest == "" {
 			customDest = "./restored"
 		}
-		fmt.Printf("  %s Files will be saved to: %s%s\n", tui.Yellow, customDest, tui.Reset)
+		// Validate: try creating the directory
+		if err := os.MkdirAll(customDest, 0755); err != nil {
+			// Cannot write there — fallback to user home
+			home, _ := os.UserHomeDir()
+			customDest = filepath.Join(home, "restored")
+			os.MkdirAll(customDest, 0755)
+			fmt.Printf("  %s Cannot write to that path. Using: %s%s\n", tui.Yellow, customDest, tui.Reset)
+		} else {
+			// Remove the test dir, it will be recreated during restore
+			os.RemoveAll(customDest)
+			fmt.Printf("  %s Files will be saved to: %s%s\n", tui.Yellow, customDest, tui.Reset)
+		}
 		fmt.Println("  (No system changes will be made)")
 	} else {
-		fmt.Println("  %s Restoring to original locations %s(may need sudo)%s\n", tui.Green, tui.Yellow, tui.Reset)
+		fmt.Printf("  %s Restoring to original locations %s(may need sudo)%s\n", tui.Green, tui.Yellow, tui.Reset)
 	}
 	fmt.Println()
 
@@ -339,7 +360,11 @@ func restorePM2(dir string) {
 }
 
 func copyDir(src, dst string) {
-	os.MkdirAll(dst, 0755)
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		// Try with sudo
+		exec.Command("sudo", "mkdir", "-p", dst).Run()
+		exec.Command("sudo", "chown", os.Getenv("USER"), dst).Run()
+	}
 	entries, _ := os.ReadDir(src)
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
@@ -349,7 +374,12 @@ func copyDir(src, dst string) {
 		} else {
 			data, err := os.ReadFile(srcPath)
 			if err == nil {
-				os.WriteFile(dstPath, data, 0644)
+				if err := os.WriteFile(dstPath, data, 0644); err != nil {
+					// Try with sudo
+					tmpFile := dstPath + ".tmp"
+					os.WriteFile(tmpFile, data, 0644)
+					exec.Command("sudo", "mv", tmpFile, dstPath).Run()
+				}
 			}
 		}
 	}
