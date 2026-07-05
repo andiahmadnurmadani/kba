@@ -304,6 +304,7 @@ IOSchedulingClass=idle
 		}
 	}
 
+	os.Setenv("KBA_TZ", cfg.Timezone)
 	timerContent := fmt.Sprintf(`[Unit]
 Description=Kroombox Backup Timer (%s)
 

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 	"os/exec"
 	"path/filepath"
 
@@ -304,7 +305,7 @@ func cmdLogs() {
 			if !files[i].IsDir() && strings.HasPrefix(files[i].Name(), "backup_") {
 				fi, _ := os.Stat(filepath.Join(logDir, files[i].Name()))
 				if fi != nil {
-					fmt.Printf("\n%s %s [%s]:\n", "\u2502", files[i].Name(), fi.ModTime().Format("Jan 02 15:04"))
+					fmt.Printf("\n%s %s [%s]:\n", "\u2502", files[i].Name(), timeToWIB(fi.ModTime()).Format("Jan 02 15:04"))
 					data, err := os.ReadFile(filepath.Join(logDir, files[i].Name()))
 					if err == nil {
 						lines := strings.Split(string(data), "\n")
@@ -340,6 +341,14 @@ func cmdLogs() {
 	} else {
 		fmt.Println("  No backup directories found.")
 	}
+}
+
+func timeToWIB(t time.Time) time.Time {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		return t
+	}
+	return t.In(loc)
 }
 
 func printReport(r *backup.BackupReport) {

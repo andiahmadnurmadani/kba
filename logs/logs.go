@@ -3,16 +3,37 @@ package logs
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 type Logger struct {
-	info  *log.Logger
-	error *log.Logger
+	info  *logWriter
+	error *logWriter
 	file  *os.File
+}
+
+type logWriter struct {
+	prefix string
+	w      io.Writer
+}
+
+func (lw *logWriter) Write(p []byte) (int, error) {
+	// Use timezone from config, fallback to Asia/Jakarta (WIB)
+	tz := os.Getenv("KBA_TZ")
+	if tz == "" {
+		tz = "Asia/Jakarta"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		loc = time.FixedZone("WIB", 7*60*60)
+	}
+	now := time.Now().In(loc)
+	ts := now.Format("2006/01/02 15:04:05")
+	msg := fmt.Sprintf("%s%s: %s", lw.prefix, ts, string(p))
+	return lw.w.Write([]byte(msg))
 }
 
 var defaultLogger *Logger
@@ -31,22 +52,30 @@ func Init(logDir string) error {
 	multi := io.MultiWriter(f)  // file only — stdout reserved for progress animation
 
 	defaultLogger = &Logger{
-		info:  log.New(multi, "INFO: ", log.Ldate|log.Ltime),
-		error: log.New(multi, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
+		info:  &logWriter{prefix: "INFO: ", w: multi},
+		error: &logWriter{prefix: "ERROR: ", w: multi},
 		file:  f,
 	}
 	return nil
 }
 
 func Info(format string, args ...interface{}) {
-	if defaultLogger != nil {
-		defaultLogger.info.Printf(format, args...)
+	if defaultLogger != nil && defaultLogger.info != nil {
+		msg := fmt.Sprintf(format, args...)
+		if !strings.HasSuffix(msg, "\n") {
+			msg += "\n"
+		}
+		defaultLogger.info.Write([]byte(msg))
 	}
 }
 
 func Error(format string, args ...interface{}) {
-	if defaultLogger != nil {
-		defaultLogger.error.Printf(format, args...)
+	if defaultLogger != nil && defaultLogger.error != nil {
+		msg := fmt.Sprintf(format, args...)
+		if !strings.HasSuffix(msg, "\n") {
+			msg += "\n"
+		}
+		defaultLogger.error.Write([]byte(msg))
 	}
 }
 
