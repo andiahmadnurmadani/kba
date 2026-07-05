@@ -494,17 +494,46 @@ func Describe() error {
 		if len(timerOut) == 0 {
 			timerOut, _ = exec.Command("systemctl", "show", "kroombox-backup.timer", "--property=NextElapseUSecRealtime,LastTriggerUSec", "--no-pager").Output()
 		}
+		// Read timezone from timer config
+		tzName := "UTC"
+		var svcOut2 []byte
+		if askpass != "" {
+			svcOut2, _ = exec.Command("sudo", "-A", "cat", "/etc/systemd/system/kroombox-backup.timer").Output()
+		} else {
+			svcOut2, _ = exec.Command("cat", "/etc/systemd/system/kroombox-backup.timer").Output()
+		}
+		if len(svcOut2) > 0 {
+			for _, line := range strings.Split(string(svcOut2), "\n") {
+				if strings.Contains(line, "OnCalendar") {
+					parts := strings.Fields(line)
+					if len(parts) >= 2 {
+						// Last field might be timezone (e.g., Asia/Jakarta)
+						last := strings.TrimSpace(parts[len(parts)-1])
+						if strings.Contains(last, "/") || len(last) == 3 {
+							tzName = last
+						}
+					}
+				}
+			}
+		}
 		if len(timerOut) > 0 {
 			for _, prop := range strings.Split(string(timerOut), "\n") {
 				if strings.Contains(prop, "NextElapse") {
 					val := strings.TrimPrefix(prop, "NextElapseUSecRealtime=")
-					if val != "" { fmt.Printf("  Next run:  %s\n", val) }
+					if val != "" {
+						// Try to convert to configured timezone
+						converted := convertTZ(val, tzName)
+						fmt.Printf("  Next run:  %s\n", converted)
+					}
 				} else if strings.Contains(prop, "LastTrigger") {
 					val := strings.TrimPrefix(prop, "LastTriggerUSec=")
-					if val != "" { fmt.Printf("  Last run:  %s\n", val) }
+					if val != "" {
+						converted := convertTZ(val, tzName)
+						fmt.Printf("  Last run:  %s\n", converted)
+					}
 				}
 			}
-			fmt.Println("  Status:    active (systemd timer)")
+			fmt.Printf("  Status:    active (systemd timer) — %s\n", tzName)
 
 			// Show timer config
 			var svcOut []byte
@@ -666,4 +695,33 @@ func CleanupOldBackups(keepDays int, backupPath string) error {
 		fmt.Printf("\n  Cleaned up %d backups (%s freed)\n", deleted, modules.FormatSize(totalSize))
 	}
 	return nil
+}
+
+func convertTZ(timeStr, tzName string) string {
+	// systemctl show returns format like "Sun 2026-07-05 20:29:29 UTC"
+	// Parse it and convert to target timezone
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		// Can't convert, show as-is with timezone name
+		return timeStr + " (" + tzName + ")"
+	}
+	
+	// Try parsing various formats
+	formats := []string{
+		"Mon 2006-01-02 15:04:05 MST",
+		"Mon 2006-01-02 15:04:05",
+		"2006-01-02 15:04:05",
+	}
+	
+	for _, fmt := range formats {
+		t, err := time.Parse(fmt, timeStr)
+		if err == nil {
+			// Convert to target timezone
+			t = t.In(loc)
+			return t.Format("Mon 02-Jan-2006 15:04:05")
+		}
+	}
+	
+	// Can't parse, append timezone
+	return timeStr + " (" + tzName + ")"
 }
