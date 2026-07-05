@@ -366,27 +366,11 @@ func printReport(r *backup.BackupReport) {
 }
 
 func cmdRestore() {
-	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "Usage: kba restore <backup-directory> [service1 service2 ...]")
+	if err := restore.RunInteractive(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
-	source := os.Args[2]
-	services := os.Args[3:]
-
-	logs.Init("logs")
-	err := restore.Run(restore.RestoreOptions{
-		Source:   source,
-		Services: services,
-	})
-	logs.Close()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Restore failed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("Restore completed successfully.")
 }
-
 func cmdStatus() {
 	d := detect.Detect()
 

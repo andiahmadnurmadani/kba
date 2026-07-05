@@ -1,167 +1,304 @@
 package restore
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 
-	"kroombox-backup-agent/logs"
-	"kroombox-backup-agent/manifest"
+	"kroombox-backup-agent/tui"
 )
 
-type RestoreOptions struct {
-	Source    string
-	Services  []string
-	DryRun    bool
-	TargetDir string
+type BackupInfo struct {
+	Path     string
+	Date     string
+	Size     string
+	Services map[string]bool
+	Hostname string
 }
 
-func Run(opts RestoreOptions) error {
-	manifestPath := filepath.Join(opts.Source, "manifest.json")
-	if _, err := os.Stat(manifestPath); err != nil {
-		return fmt.Errorf("manifest not found at %s: %w", manifestPath, err)
+func RunInteractive() error {
+	reader := bufio.NewReader(os.Stdin)
+
+	backups := findBackups()
+	if len(backups) == 0 {
+		fmt.Println()
+		tui.StatusBox("No Backups Found", []string{
+			"No backup directories found.",
+			"Run 'kba backup' first.",
+		})
+		return nil
 	}
 
-	m, err := manifest.Load(manifestPath)
-	if err != nil {
-		return fmt.Errorf("load manifest: %w", err)
+	fmt.Println()
+	tui.StatusBox("Restore Wizard", []string{
+		"Select a backup to restore.",
+		"You can restore all services or choose specific ones.",
+	})
+
+	// ── Step 1: Select backup ──
+	fmt.Println()
+	fmt.Printf("  %sStep 1/3: Select Backup%s\n", tui.Bold, tui.Reset)
+	fmt.Println()
+
+	for i, b := range backups {
+		svcList := []string{}
+		for svc, ok := range b.Services {
+			if ok {
+				svcList = append(svcList, svc)
+			}
+		}
+		fmt.Printf("  %2d) %s  %10s  %s\n", i+1, b.Date, b.Size, strings.Join(svcList, ", "))
 	}
+	fmt.Println()
+	fmt.Print("  Select backup [1]: ")
+	var n int
+	fmt.Scanf("%d\n", &n)
+	if n < 1 || n > len(backups) {
+		n = 1
+	}
+	selected := backups[n-1]
+	fmt.Printf("  Selected: %s (%s)\n", selected.Date, selected.Size)
 
-	logs.Info("Restoring backup from: %s", opts.Source)
-	logs.Info("Server: %s | Date: %s", m.Hostname, m.BackupDate)
-	logs.Info("Services in backup: %d", len(m.Services))
+	// Show detail
+	fmt.Println()
+	fmt.Printf("  %sBackup Details%s\n", tui.Bold, tui.Reset)
+	fmt.Printf("    Date:     %s\n", selected.Date)
+	fmt.Printf("    Size:     %s\n", selected.Size)
+	fmt.Printf("    Hostname: %s\n", selected.Hostname)
+	fmt.Println("    Services:")
+	for svc, ok := range selected.Services {
+		if ok {
+			fmt.Printf("      ✓ %s\n", svc)
+		}
+	}
+	fmt.Println()
 
-	services := opts.Services
-	if len(services) == 0 {
-		for svc := range m.Services {
-			if m.Services[svc] {
-				services = append(services, svc)
+	// ── Step 2: Select services ──
+	fmt.Println()
+	fmt.Printf("  %sStep 2/3: Services to Restore%s\n", tui.Bold, tui.Reset)
+	fmt.Println()
+
+	available := []string{}
+	for svc, ok := range selected.Services {
+		if ok {
+			available = append(available, svc)
+		}
+	}
+	sort.Strings(available)
+
+	fmt.Printf("  Available: %s\n", strings.Join(available, ", "))
+	fmt.Println("  Enter comma-separated, or 'all' for everything.")
+	fmt.Print("  Services [all]: ")
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	var selectedServices []string
+	if input == "" || input == "all" {
+		selectedServices = available
+	} else {
+		for _, s := range strings.Split(input, ",") {
+			s = strings.TrimSpace(s)
+			for _, a := range available {
+				if strings.EqualFold(s, a) {
+					selectedServices = append(selectedServices, a)
+				}
 			}
 		}
 	}
-
-	targetDir := opts.TargetDir
-	if targetDir == "" {
-		targetDir = opts.Source
+	if len(selectedServices) == 0 {
+		fmt.Printf("  %s Invalid, restoring all.%s\n", tui.Yellow, tui.Reset)
+		selectedServices = available
 	}
 
-	for _, svc := range services {
-		logs.Info("Restoring: %s", svc)
-		svcDir := filepath.Join(opts.Source, svc)
-		if _, err := os.Stat(svcDir); err != nil {
-			logs.Error("  %s backup data not found, skipping", svc)
-			continue
-		}
-
-		if opts.DryRun {
-			logs.Info("  DRY-RUN: would restore %s", svcDir)
-			continue
-		}
-
-		if err := restoreService(svc, svcDir, targetDir); err != nil {
-			logs.Error("  Failed to restore %s: %v", svc, err)
-		} else {
-			logs.Info("  %s restored successfully", svc)
-		}
-	}
-
-	return nil
-}
-
-func restoreService(name, sourceDir, targetDir string) error {
-	switch name {
-	case "mysql":
-		return restoreMySQL(sourceDir)
-	case "postgres":
-		return restorePostgres(sourceDir)
-	case "mongodb":
-		return restoreMongoDB(sourceDir)
-	case "nginx":
-		return restoreConfig(sourceDir, "/etc/nginx")
-	case "pm2":
-		return restorePM2(sourceDir)
-	case "cron":
-		return restoreCron(sourceDir)
-	case "ssl":
-		return restoreConfig(sourceDir, "/etc/letsencrypt")
-	case "docker", "git":
-		logs.Info("  %s restore: files available at %s (manual restore recommended)", name, sourceDir)
+	// ── Step 3: Confirm ──
+	fmt.Println()
+	fmt.Printf("  %sStep 3/3: Confirm%s\n", tui.Bold, tui.Reset)
+	fmt.Println()
+	fmt.Printf("  Backup:  %s\n", selected.Date)
+	fmt.Printf("  Source:  %s\n", selected.Path)
+	fmt.Printf("  Restore: %s\n", strings.Join(selectedServices, ", "))
+	fmt.Println()
+	fmt.Print("  Start restore? [Y/n]: ")
+	confirm, _ := reader.ReadString('\n')
+	confirm = strings.TrimSpace(confirm)
+	if confirm == "n" || confirm == "N" {
+		fmt.Println("  Cancelled.")
 		return nil
-	default:
-		return fmt.Errorf("unknown service: %s", name)
 	}
-	return nil
-}
 
-func restoreMySQL(src string) error {
-	files, err := os.ReadDir(src)
-	if err != nil { return err }
+	// ── Execute ──
+	fmt.Println()
+	fmt.Println("  Restoring...")
+	for _, svc := range selectedServices {
+		svcDir := filepath.Join(selected.Path, svc)
+		if fi, err := os.Stat(svcDir); err != nil || !fi.IsDir() {
+			fmt.Printf("  %s %s: no data%s\n", tui.Yellow, svc, tui.Reset)
+			continue
+		}
+		fmt.Printf("  %s %s: restoring...%s\n", tui.Cyan, svc, tui.Reset)
 
-	for _, f := range files {
-		if filepath.Ext(f.Name()) != ".sql" { continue }
-		dbName := f.Name()[:len(f.Name())-4]
-		if dbName == "all" { continue }
-
-		logs.Info("  Restoring database: %s", dbName)
-
-		exec.Command("mysql", "-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", dbName)).Run()
-		cmd := exec.Command("mysql", dbName, "-e", fmt.Sprintf("source %s", filepath.Join(src, f.Name())))
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("restore %s: %s: %w", dbName, string(out), err)
+		switch svc {
+		case "mysql":
+			restoreMySQL(svcDir)
+		case "mongodb":
+			restoreMongo(svcDir)
+		case "pm2":
+			restorePM2(svcDir)
+		case "nginx":
+			restoreFile("Nginx", svcDir, "/etc/nginx/")
+		default:
+			restoreFile(svc, svcDir, "./restored_"+svc)
 		}
 	}
+
+	fmt.Println()
+	tui.StatusBox("Restore Complete", []string{
+		fmt.Sprintf("Backup: %s", selected.Date),
+		fmt.Sprintf("Restored: %s", strings.Join(selectedServices, ", ")),
+	})
 	return nil
 }
 
-func restorePostgres(src string) error {
-	dumpFile := filepath.Join(src, "all.sql")
-	if _, err := os.Stat(dumpFile); err != nil {
-		return fmt.Errorf("postgres dump not found: %w", err)
+func findBackups() []BackupInfo {
+	home, _ := os.UserHomeDir()
+	searchPaths := []string{
+		"/var/backups/kroombox",
+		filepath.Join(home, "backup"),
+		filepath.Join(home, "backups/kroombox"),
+		"./backups",
 	}
-	cmd := exec.Command("psql", "-f", dumpFile)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("restore postgres: %s: %w", string(out), err)
-	}
-	return nil
-}
+	var backups []BackupInfo
+	seen := map[string]bool{}
 
-func restoreMongoDB(src string) error {
-	cmd := exec.Command("mongorestore", "--drop", src)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("restore mongodb: %s: %w", string(out), err)
-	}
-	return nil
-}
+	for _, base := range searchPaths {
+		if fi, err := os.Stat(base); err != nil || !fi.IsDir() {
+			continue
+		}
+		entries, _ := os.ReadDir(base)
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			date := entry.Name()
+			if len(date) != 10 || date[4] != '-' || date[7] != '-' {
+				continue
+			}
+			fullPath := filepath.Join(base, date)
+			if seen[fullPath] {
+				continue
+			}
+			seen[fullPath] = true
 
-func restorePM2(src string) error {
-	dst := filepath.Join(os.Getenv("HOME"), ".pm2")
-	os.MkdirAll(dst, 0755)
-	cpCmd := exec.Command("cp", "-a", src+"/.", dst+"/")
-	if out, err := cpCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("restore pm2: %s: %w", string(out), err)
-	}
-	exec.Command("pm2", "resurrect").Run()
-	return nil
-}
+			info := BackupInfo{
+				Path:     fullPath,
+				Date:     date,
+				Services: map[string]bool{},
+			}
 
-func restoreCron(src string) error {
-	cronFile := filepath.Join(src, "crontab.txt")
-	if _, err := os.Stat(cronFile); err == nil {
-		cmd := exec.Command("crontab", cronFile)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("restore crontab: %s: %w", string(out), err)
+			// Read manifest
+			mp := filepath.Join(fullPath, "manifest.json")
+			if data, err := os.ReadFile(mp); err == nil {
+				var m struct {
+					Hostname string          `json:"hostname"`
+					Size     string          `json:"size"`
+					Services map[string]bool `json:"services"`
+				}
+				if json.Unmarshal(data, &m) == nil {
+					info.Hostname = m.Hostname
+					info.Size = m.Size
+					info.Services = m.Services
+				}
+			}
+
+			// Fallback: scan dirs
+			if len(info.Services) == 0 {
+				svcDirs, _ := os.ReadDir(fullPath)
+				for _, se := range svcDirs {
+					if se.IsDir() {
+						info.Services[se.Name()] = true
+					}
+				}
+				var totalSize int64
+				filepath.Walk(fullPath, func(p string, fi os.FileInfo, err error) error {
+					if err == nil && !fi.IsDir() {
+						totalSize += fi.Size()
+					}
+					return nil
+				})
+				info.Size = fmt.Sprintf("%.1fMB", float64(totalSize)/1024/1024)
+			}
+			backups = append(backups, info)
 		}
 	}
-	return nil
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].Date > backups[j].Date
+	})
+	return backups
 }
 
-func restoreConfig(src, dst string) error {
-	os.MkdirAll(dst, 0755)
-	cpCmd := exec.Command("cp", "-a", src+"/.", dst+"/")
-	if out, err := cpCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("restore config to %s: %s: %w", dst, string(out), err)
+func restoreMySQL(dir string) {
+	filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() || (!strings.HasSuffix(p, ".sql") && !strings.HasSuffix(p, ".sql.gz")) {
+			return nil
+		}
+		fmt.Printf("    Importing: %s\n", filepath.Base(p))
+		// Read the SQL file and pipe to mysql
+		data, err := os.ReadFile(p)
+		if err != nil {
+			fmt.Printf("    %s Read error: %s%s\n", tui.Yellow, err, tui.Reset)
+			return nil
+		}
+		cmd := exec.Command("mysql", "--defaults-file="+mysqlCnfPath(), "-f")
+		cmd.Stdin = strings.NewReader(string(data))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fmt.Printf("    %s Error: %s%s\n", tui.Yellow, strings.TrimSpace(string(out)), tui.Reset)
+		} else {
+			fmt.Printf("    %s Done%s\n", tui.Green, tui.Reset)
+		}
+		return nil
+	})
+}
+
+func restoreMongo(dir string) {
+	cmd := exec.Command("mongorestore", dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Printf("    %s Error: %s%s\n", tui.Yellow, strings.TrimSpace(string(out)), tui.Reset)
+	} else {
+		fmt.Printf("    %s Done%s\n", tui.Green, tui.Reset)
 	}
-	return nil
 }
 
+func restoreFile(name, srcDir, destDir string) {
+	entries, _ := os.ReadDir(srcDir)
+	for _, entry := range entries {
+		src := filepath.Join(srcDir, entry.Name())
+		dst := filepath.Join(destDir, entry.Name())
+		fmt.Printf("    %s\n", src)
+		if strings.HasPrefix(destDir, "/etc/") {
+			os.MkdirAll(filepath.Dir(dst), 0755)
+			exec.Command("sudo", "cp", "-r", src, dst).Run()
+		} else {
+			os.MkdirAll(destDir, 0755)
+			exec.Command("cp", "-r", src, dst).Run()
+		}
+	}
+	fmt.Printf("    %s Done%s\n", tui.Green, tui.Reset)
+}
+
+func restorePM2(dir string) {
+	pm2File := filepath.Join(dir, "dump.pm2")
+	if _, err := os.Stat(pm2File); err == nil {
+		exec.Command("pm2", "start", pm2File).Run()
+		fmt.Printf("    %s PM2 restored%s\n", tui.Green, tui.Reset)
+	}
+}
+
+func mysqlCnfPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".my.cnf")
+}
