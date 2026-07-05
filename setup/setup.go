@@ -151,20 +151,40 @@ func setupCredentials(reader *bufio.Reader, d *detect.Result) error {
 				fmt.Print("  MySQL password (enter for socket auth): ")
 				pass, _ := reader.ReadString('\n')
 				pass = strings.TrimSpace(pass)
-				home, _ := os.UserHomeDir()
-				cnfPath := filepath.Join(home, ".my.cnf")
+				cnfPath := mysqlCnfPath()
 				if pass == "" {
-					content := "[client]\nuser=" + user + "\nsocket=/var/run/mysqld/mysqld.sock"
-					os.WriteFile(cnfPath, []byte(content), 0600)
+					c := "[client]\nuser=" + user + "\nsocket=/var/run/mysqld/mysqld.sock"
+					os.WriteFile(cnfPath, []byte(c), 0600)
+					fmt.Printf("  Written: %s (socket auth)\n", cnfPath)
 				} else {
-					content := "[client]\nuser=" + user + "\npassword=" + pass
-					os.WriteFile(cnfPath, []byte(content), 0600)
+					c := "[client]\nuser=" + user + "\npassword=" + pass
+					os.WriteFile(cnfPath, []byte(c), 0600)
+					fmt.Printf("  Written: %s\n", cnfPath)
 				}
+				// Show content (hide password)
+				if data, err := os.ReadFile(cnfPath); err == nil {
+					for _, l := range strings.Split(string(data), "\n") {
+						if strings.Contains(l, "password") {
+							fmt.Printf("           %s=***\n", strings.Split(l, "=")[0])
+						} else if l != "" {
+							fmt.Printf("           %s\n", l)
+						}
+					}
+				}
+				// Also try MYSQL_PWD env for direct testing
+				os.Setenv("MYSQL_PWD", pass)
 				if checkMySQLLogin() {
 					fmt.Printf("  %s MySQL login OK!%s\n", tui.Green, tui.Reset)
 					break
 				}
 				if attempt < 4 {
+					// Show the actual error
+					debugCmd := exec.Command("mysql", "-u", user, "-p"+pass, "-e", "SELECT 1", "--batch", "--skip-column-names")
+					debugOut, _ := debugCmd.CombinedOutput()
+					errMsg := strings.TrimSpace(string(debugOut))
+					if errMsg != "" {
+						fmt.Printf("  %s Error: %s%s\n", tui.Yellow, errMsg, tui.Reset)
+					}
 					fmt.Printf("  %s Login failed (%d/5). Try again.%s\n", tui.Yellow, attempt+1, tui.Reset)
 				} else {
 					fmt.Printf("  %s Login failed after 5 attempts. Skipping MySQL.%s\n", tui.Yellow, tui.Reset)
@@ -214,9 +234,28 @@ func setupCredentials(reader *bufio.Reader, d *detect.Result) error {
 }
 
 func checkMySQLLogin() bool {
-	cmd := exec.Command("mysql", "-e", "SELECT 1", "--batch", "--skip-column-names")
-	out, err := cmd.Output()
-	return err == nil && strings.TrimSpace(string(out)) == "1"
+	// Try with --defaults-file to be explicit
+	cmd := exec.Command("mysql", "--defaults-file="+mysqlCnfPath(), "-e", "SELECT 1", "--batch", "--skip-column-names")
+	out, err := cmd.CombinedOutput()
+	if err == nil && strings.TrimSpace(string(out)) == "1" {
+		return true
+	}
+	errMsg := strings.TrimSpace(string(out))
+	_ = errMsg
+
+	// Try without defaults-file (standard client path)
+	cmd2 := exec.Command("mysql", "-e", "SELECT 1", "--batch", "--skip-column-names")
+	out2, err2 := cmd2.CombinedOutput()
+	if err2 == nil && strings.TrimSpace(string(out2)) == "1" {
+		return true
+	}
+
+	return false
+}
+
+func mysqlCnfPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".my.cnf")
 }
 
 func checkPgLogin() bool {
