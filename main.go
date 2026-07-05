@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"kroombox-backup-agent/restore"
+	"kroombox-backup-agent/setup"
+	"kroombox-backup-agent/update"
 	"encoding/json"
 	"kroombox-backup-agent/scheduler"
 	"kroombox-backup-agent/tui"
@@ -42,6 +44,10 @@ func main() {
 		cmdDetect()
 	case "schedule":
 		cmdSchedule()
+	case "setup":
+		cmdSetup()
+	case "update":
+		cmdUpdate()
 	case "logs":
 		cmdLogs()
 	case "version":
@@ -66,6 +72,8 @@ func printUsage() {
 	fmt.Println("  kba schedule --cleanup [days]  Delete backups older than N days (default 7)")
 	fmt.Println("  kba schedule --daily [HH:MM]  Quick daily schedule (default WIB)")
 	fmt.Println("  kba schedule --cron 'EXPR'    Quick custom cron")
+	fmt.Println("  kba setup              Interactive credential setup")
+	fmt.Println("  kba update             Update to latest version")
 	fmt.Println("  kba logs               Show recent backup logs")
 	fmt.Println("  kba version            Show version")
 }
@@ -225,6 +233,20 @@ func cmdSchedule() {
 	}
 	fmt.Println("\n✓ Schedule installed! Backup will run automatically.")
 	scheduler.Describe()
+}
+
+func cmdSetup() {
+	if err := setup.RunCredentialWizard(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func cmdUpdate() {
+	if err := update.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func cmdLogs() {
