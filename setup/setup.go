@@ -30,7 +30,7 @@ func RunWizard() error {
 
 	// ── Step 1: Detected Services ──
 	fmt.Println()
-	fmt.Printf("  %sStep 1/4: Detected Services%s\n", tui.Bold, tui.Reset)
+	fmt.Printf("  %sStep 1/4: Select Services to Backup%s\n", tui.Bold, tui.Reset)
 	fmt.Println()
 	rows := [][]string{}
 	for _, s := range d.Services {
@@ -51,16 +51,16 @@ func RunWizard() error {
 	}
 	tui.Table([]string{"Service", "Version"}, rows)
 	fmt.Println()
-	fmt.Print("  Press Enter to continue...")
+	fmt.Print("  Enter comma-separated, or 'all'.")
 	reader.ReadString('\n')
 
 	// ── Step 2: Credentials ──
 	fmt.Println()
 	fmt.Printf("  %sStep 2/4: Credentials Setup%s\n", tui.Bold, tui.Reset)
 	fmt.Println()
-	if err := setupCredentials(reader, d); err != nil {
-		return err
-	}
+		// Credentials handled per-service inline above
+
+
 	fmt.Println()
 
 	// ── Step 3: Backup Destination ──
@@ -92,28 +92,6 @@ func RunWizard() error {
 
 	// ── Step 4: Service Selection ──
 	fmt.Println()
-	fmt.Printf("  %sStep 4/4: Services to Backup%s\n", tui.Bold, tui.Reset)
-	fmt.Println()
-	fmt.Println("  Select which services to include in backup.")
-	fmt.Println("  Press Enter for all, or enter comma-separated list.")
-	fmt.Println()
-	svcList := []string{}
-	for _, s := range d.Services {
-		if s.Present {
-			svcList = append(svcList, string(s.Service))
-		}
-	}
-	fmt.Printf("  Available: %s\n", strings.Join(svcList, ", "))
-	fmt.Println("  Example: mysql,nginx,mongodb")
-	fmt.Print("  Services [all]: ")
-	svcInput, _ := reader.ReadString('\n')
-	svcInput = strings.TrimSpace(svcInput)
-	if svcInput != "" {
-		db.SetConfig("services", svcInput)
-	} else {
-		db.SetConfig("services", strings.Join(svcList, ","))
-	}
-	fmt.Printf("  %s Services configured%s\n", tui.Green, tui.Reset)
 	fmt.Println()
 
 	// ── Summary ──
@@ -127,110 +105,88 @@ func RunWizard() error {
 	return nil
 }
 
-func setupCredentials(reader *bufio.Reader, d *detect.Result) error {
-	for _, s := range d.Services {
-		if !s.Present {
-			continue
+func setupMySQLCred(reader *bufio.Reader) {
+	if checkMySQLLogin() {
+		fmt.Printf("  %s MySQL: already configured (login OK)%s\n", tui.Green, tui.Reset)
+		return
+	}
+	fmt.Println()
+	fmt.Printf("  %sMySQL%s requires login credentials.\n", tui.Bold, tui.Reset)
+	fmt.Println()
+	for attempt := 0; attempt < 5; attempt++ {
+		fmt.Print("  MySQL user [root]: ")
+		user, _ := reader.ReadString('\n')
+		user = strings.TrimSpace(user)
+		if user == "" { user = "root" }
+		fmt.Print("  MySQL password (enter for socket auth): ")
+		pass, _ := reader.ReadString('\n')
+		pass = strings.TrimSpace(pass)
+		cnfPath := mysqlCnfPath()
+		c := "[client]\nuser=" + user
+		if pass == "" {
+			c += "\nsocket=/var/run/mysqld/mysqld.sock"
+			fmt.Printf("  Written: %s (socket auth)\n", cnfPath)
+		} else {
+			c += "\npassword=" + pass
+			fmt.Printf("  Written: %s\n", cnfPath)
 		}
-		switch string(s.Service) {
-		case "mysql":
-			if checkMySQLLogin() {
-				fmt.Printf("  %s MySQL: already configured (login OK)%s\n", tui.Green, tui.Reset)
-				continue
-			}
-			fmt.Printf("  %sMySQL%s requires login credentials.\n", tui.Bold, tui.Reset)
-			fmt.Println()
-			
-			for attempt := 0; attempt < 5; attempt++ {
-				fmt.Print("  MySQL user [root]: ")
-				user, _ := reader.ReadString('\n')
-				user = strings.TrimSpace(user)
-				if user == "" {
-					user = "root"
-				}
-				fmt.Print("  MySQL password (enter for socket auth): ")
-				pass, _ := reader.ReadString('\n')
-				pass = strings.TrimSpace(pass)
-				cnfPath := mysqlCnfPath()
-				if pass == "" {
-					c := "[client]\nuser=" + user + "\nsocket=/var/run/mysqld/mysqld.sock"
-					os.WriteFile(cnfPath, []byte(c), 0600)
-					fmt.Printf("  Written: %s (socket auth)\n", cnfPath)
-				} else {
-					c := "[client]\nuser=" + user + "\npassword=" + pass
-					os.WriteFile(cnfPath, []byte(c), 0600)
-					fmt.Printf("  Written: %s\n", cnfPath)
-				}
-				// Show content (hide password)
-				if data, err := os.ReadFile(cnfPath); err == nil {
-					for _, l := range strings.Split(string(data), "\n") {
-						if strings.Contains(l, "password") {
-							fmt.Printf("           %s=***\n", strings.Split(l, "=")[0])
-						} else if l != "" {
-							fmt.Printf("           %s\n", l)
-						}
-					}
-				}
-				// Also try MYSQL_PWD env for direct testing
-				os.Setenv("MYSQL_PWD", pass)
-				if checkMySQLLogin() {
-					fmt.Printf("  %s MySQL login OK!%s\n", tui.Green, tui.Reset)
-					break
-				}
-				if attempt < 4 {
-					// Show the actual error
-					debugCmd := exec.Command("mysql", "-u", user, "-p"+pass, "-e", "SELECT 1", "--batch", "--skip-column-names")
-					debugOut, _ := debugCmd.CombinedOutput()
-					errMsg := strings.TrimSpace(string(debugOut))
-					if errMsg != "" {
-						fmt.Printf("  %s Error: %s%s\n", tui.Yellow, errMsg, tui.Reset)
-					}
-					fmt.Printf("  %s Login failed (%d/5). Try again.%s\n", tui.Yellow, attempt+1, tui.Reset)
-				} else {
-					fmt.Printf("  %s Login failed after 5 attempts. Skipping MySQL.%s\n", tui.Yellow, tui.Reset)
-				}
-			}
-
-		case "postgres":
-			if checkPgLogin() {
-				fmt.Printf("  %s PostgreSQL: already configured%s\n", tui.Green, tui.Reset)
-				continue
-			}
-			fmt.Printf("  %sPostgreSQL%s requires login credentials.\n", tui.Bold, tui.Reset)
-			fmt.Println()
-			fmt.Print("  Host [localhost]: ")
-			host, _ := reader.ReadString('\n')
-			host = strings.TrimSpace(host)
-			if host == "" {
-				host = "localhost"
-			}
-			fmt.Print("  Port [5432]: ")
-			port, _ := reader.ReadString('\n')
-			port = strings.TrimSpace(port)
-			if port == "" {
-				port = "5432"
-			}
-			fmt.Print("  User [postgres]: ")
-			user, _ := reader.ReadString('\n')
-			user = strings.TrimSpace(user)
-			if user == "" {
-				user = "postgres"
-			}
-			fmt.Print("  Password: ")
-			pass, _ := reader.ReadString('\n')
-			pass = strings.TrimSpace(pass)
-			home, _ := os.UserHomeDir()
-			pgpassPath := filepath.Join(home, ".pgpass")
-			content := fmt.Sprintf("%s:%s:*:%s:%s\n", host, port, user, pass)
-			os.WriteFile(pgpassPath, []byte(content), 0600)
-			if checkPgLogin() {
-				fmt.Printf("  %s PostgreSQL login OK!%s\n", tui.Green, tui.Reset)
-			} else {
-				fmt.Printf("  %s PostgreSQL login failed%s\n", tui.Yellow, tui.Reset)
-			}
+		os.WriteFile(cnfPath, []byte(c), 0600)
+		os.Setenv("MYSQL_PWD", pass)
+		if checkMySQLLogin() {
+			fmt.Printf("  %s MySQL login OK!%s\n", tui.Green, tui.Reset)
+			return
+		}
+		debugCmd := exec.Command("mysql", "--defaults-file="+mysqlCnfPath(), "-e", "SELECT 1")
+		debugOut, _ := debugCmd.CombinedOutput()
+		errMsg := strings.TrimSpace(string(debugOut))
+		if errMsg != "" {
+			fmt.Printf("  %s Error: %s%s\n", tui.Yellow, errMsg, tui.Reset)
+		}
+		if attempt < 4 {
+			fmt.Printf("  %s Login failed (%d/5). Try again.%s\n", tui.Yellow, attempt+1, tui.Reset)
+		} else {
+			fmt.Printf("  %s Login failed after 5 attempts. Skipping MySQL.%s\n", tui.Yellow, tui.Reset)
 		}
 	}
-	return nil
+}
+
+func setupPostgresCred(reader *bufio.Reader) {
+	if checkPgLogin() {
+		fmt.Printf("  %s PostgreSQL: already configured%s\n", tui.Green, tui.Reset)
+		return
+	}
+	fmt.Println()
+	fmt.Printf("  %sPostgreSQL%s requires login credentials.\n", tui.Bold, tui.Reset)
+	fmt.Println()
+	fmt.Print("  Host [localhost]: ")
+	host, _ := reader.ReadString('\n')
+	host = strings.TrimSpace(host)
+	if host == "" { host = "localhost" }
+	fmt.Print("  Port [5432]: ")
+	port, _ := reader.ReadString('\n')
+	port = strings.TrimSpace(port)
+	if port == "" { port = "5432" }
+	fmt.Print("  User [postgres]: ")
+	user, _ := reader.ReadString('\n')
+	user = strings.TrimSpace(user)
+	if user == "" { user = "postgres" }
+	fmt.Print("  Password: ")
+	pass, _ := reader.ReadString('\n')
+	pass = strings.TrimSpace(pass)
+	home, _ := os.UserHomeDir()
+	pgpassPath := filepath.Join(home, ".pgpass")
+	content := fmt.Sprintf("%s:%s:*:%s:%s\n", host, port, user, pass)
+	os.WriteFile(pgpassPath, []byte(content), 0600)
+	if checkPgLogin() {
+		fmt.Printf("  %s PostgreSQL login OK!%s\n", tui.Green, tui.Reset)
+	} else {
+		fmt.Printf("  %s PostgreSQL login failed%s\n", tui.Yellow, tui.Reset)
+	}
+}
+
+func checkMongoRunning() bool {
+	cmd := exec.Command("mongosh", "--quiet", "--eval", "db.adminCommand('ping')")
+	return cmd.Run() == nil
 }
 
 func checkMySQLLogin() bool {
