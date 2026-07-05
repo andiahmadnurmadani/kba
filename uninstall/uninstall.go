@@ -61,9 +61,9 @@ func Run() error {
 	fmt.Println("  • Removing service...")
 	stopService()
 
-	// 2. Remove binary
+	// 2. Remove binary (needs sudo)
 	fmt.Println("  • Removing binary...")
-	os.Remove("/usr/local/bin/kba")
+	exec.Command("sudo", "rm", "-f", "/usr/local/bin/kba").Run()
 
 	// 3. Remove config
 	fmt.Println("  • Removing config...")
@@ -83,7 +83,7 @@ func Run() error {
 	srcDir := filepath.Join(home, "kroombox-backup-agent")
 	if fi, err := os.Stat(srcDir); err == nil && fi.IsDir() {
 		fmt.Println("  • Removing source directory...")
-		os.RemoveAll(srcDir)
+		exec.Command("sudo", "rm", "-rf", srcDir).Run()
 	}
 
 	// 7. Remove MySQL credentials (optional)
@@ -94,6 +94,7 @@ func Run() error {
 	if rmCred == "y" || rmCred == "Y" {
 		os.Remove(filepath.Join(home, ".my.cnf"))
 		os.Remove(filepath.Join(home, ".pgpass"))
+		exec.Command("sudo", "rm", "-f", filepath.Join(home, ".kroombox")).Run()
 		fmt.Println("  • Credentials removed")
 	}
 

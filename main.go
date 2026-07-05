@@ -120,6 +120,11 @@ func cmdBackup() {
 
 	if cfgPath == "" {
 		cfg := config.DefaultConfig()
+		// Check DB for destination
+		dbDest, _ := db.GetConfig("destination")
+		if dbDest != "" {
+			cfg.Storage.Destination = dbDest
+		}
 		logs.Init("logs")
 		report := backup.Run(cfg)
 		logs.Close()
@@ -133,7 +138,11 @@ func cmdBackup() {
 		os.Exit(1)
 	}
 
-	if cfg.Storage.Destination == "" {
+	// Check DB for destination override (from kba setup)
+	dbDest, _ := db.GetConfig("destination")
+	if dbDest != "" {
+		cfg.Storage.Destination = dbDest
+	} else if cfg.Storage.Destination == "" {
 		cfg.Storage.Destination = "/var/backups/kroombox"
 	}
 
