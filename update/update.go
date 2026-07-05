@@ -1,6 +1,7 @@
 package update
 
 import (
+
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,10 +80,13 @@ func Run() error {
 	// Show what's new
 	fmt.Println()
 	fmt.Printf("  %s Update available!%s\n", "\033[33m\u2191\033[0m", "\033[0m")
-	if latestVersion != "" && localHashStr != "" {
-		fmt.Printf("  v%s (commit %s) \u2192 v%s (commit %s)\n", "1.0.0", localHashStr, latestVersion, remoteHashStr)
+	if localHashStr != "" && len(localHashStr) >= 6 {
+		fmt.Printf("  Commit: %s \u2192 %s\n", localHashStr[:6], remoteHashStr[:6])
 	} else {
-		fmt.Printf("  Commit: %s \u2192 %s\n", localHashStr, remoteHashStr)
+		// Installed via script - no local git history
+		shortRemote := remoteHashStr
+		if len(shortRemote) > 6 { shortRemote = shortRemote[:6] }
+		fmt.Printf("  Commit: (installed via script) \u2192 %s\n", shortRemote)
 	}
 	if msgStr != "" {
 		fmt.Printf("  Latest: %s\n", msgStr)
@@ -161,7 +165,12 @@ func Run() error {
 	// Success
 	fmt.Println()
 	boxWidth := 44
-	title := fmt.Sprintf("\u2713 KBA updated: %s \u2192 %s", localHashStr[:6], remoteHashStr[:6])
+	title := fmt.Sprintf("\u2713 KBA updated!")
+	if localHashStr != "" && len(localHashStr) >= 6 {
+		title = fmt.Sprintf("\u2713 KBA updated: %s \u2192 %s", localHashStr[:6], remoteHashStr[:6])
+	} else if len(remoteHashStr) >= 6 {
+		title = fmt.Sprintf("\u2713 KBA updated (commit %s)", remoteHashStr[:6])
+	}
 	if latestVersion != "" {
 		title = fmt.Sprintf("\u2713 KBA v%s updated", latestVersion)
 	}
