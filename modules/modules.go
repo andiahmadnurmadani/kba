@@ -117,6 +117,7 @@ func (m *MySQLModule) Backup(dir string) (*BackupResult, error) {
 	fi, _ := os.Stat(dumpFile)
 	if fi != nil { result.Size = fi.Size() }
 	result.Success = true
+	result.Skipped = false
 	return result, nil
 }
 

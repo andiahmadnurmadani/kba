@@ -41,6 +41,9 @@ func New() *Display {
 }
 
 func (d *Display) AddLayer(name string) *Layer {
+	for _, l := range d.layers {
+		if l.name == name { return l }
+	}
 	l := &Layer{
 		name:      name,
 		status:    "waiting",
@@ -50,6 +53,13 @@ func (d *Display) AddLayer(name string) *Layer {
 	return l
 }
 
+func (d *Display) GetLayer(name string) *Layer {
+	for _, l := range d.layers {
+		if l.name == name { return l }
+	}
+	return nil
+}
+
 func (l *Layer) Start()     { l.status = "backing"; l.startTime = time.Now(); l.progress = 0 }
 func (l *Layer) Done()      { l.status = "done"; l.progress = 1.0 }
 func (l *Layer) Fail()      { l.status = "error" }
@@ -57,20 +67,20 @@ func (l *Layer) Skip()      { l.status = "skipped"; l.progress = 1.0 }
 func (l *Layer) SetProgress(p float64) { l.progress = p }
 
 func (d *Display) Render() {
-	// Always render from a clean position
 	// Use clear-to-end-of-screen to remove leftover content
 	// Move up to the render start if we've rendered before
 	if d.rendered && d.totalLines > 0 {
 		fmt.Printf("\033[%dA", d.totalLines)
 	}
-	// Use clear-line for each rendered line
+	// Clear from cursor to end, then render
+	fmt.Print("\033[J")
 	lines := 0
 	for _, l := range d.layers {
-		fmt.Print("\033[2K" + d.renderLayer(l))
+		fmt.Print(d.renderLayer(l))
 		lines++
 	}
 	if d.msg != "" {
-		fmt.Print("\033[2K" + d.msg + "\n")
+		fmt.Print(d.msg + "\n")
 		lines++
 	}
 	d.totalLines = lines
@@ -98,7 +108,7 @@ func (d *Display) renderLayer(l *Layer) string {
 	case "done":
 		icon, color, statusText = "\u2714", ANSIgreen, "Backup done"
 	case "skipped":
-		icon, color, statusText = "\u00b7", ANSIdim, "Not found"
+		icon, color, statusText = "\u00b7", ANSIdim, "Skipped"
 	case "error":
 		icon, color, statusText = "\u2718", ANSIred, "Error"
 	}
@@ -151,7 +161,9 @@ func (d *Display) Done() {
 }
 
 func (d *Display) Header() {
-	fmt.Printf("\n%sBackup from %s%s\n", ANSIgreen, d.hostname, ANSIreset)
+	host := d.hostname
+	if host == "" { host = "server" }
+	fmt.Printf("\n%sBackup from %s%s\n", ANSIgreen, host, ANSIreset)
 }
 
 func (d *Display) SetHostname(h string) {

@@ -57,6 +57,9 @@ func Run(cfg *config.Config) *BackupReport {
 		if isDisabled(mod.Name(), cfg) {
 			continue
 		}
+		if !mod.Detect() {
+			continue
+		}
 		l := disp.AddLayer(mod.Name())
 		layerMap[mod.Name()] = l
 		layerOrder = append(layerOrder, mod.Name())
@@ -71,15 +74,7 @@ func Run(cfg *config.Config) *BackupReport {
 		l.Start()
 		disp.Render()
 
-		if !mod.Detect() {
-			l.Skip()
-			disp.Render()
-			report.Results = append(report.Results, &modules.BackupResult{
-				Name: name, Success: false, Skipped: true,
-			})
-			m.AddService(name, false)
-			continue
-		}
+
 
 		// Animate progress while backing up
 		done := make(chan bool)
