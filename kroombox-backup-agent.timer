@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Kroombox Backup (3 AM)
+Documentation=https://github.com/kroombox/kroombox-backup-agent
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

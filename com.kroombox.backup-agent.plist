@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.kroombox.backup-agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/kba</string>
+        <string>backup</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/kroombox-backup-agent.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/kroombox-backup-agent.error.log</string>
+
+    <key>Nice</key>
+    <integer>19</integer>
+
+    <key>LowPriorityIO</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>

@@ -1,0 +1,27 @@
+# Binaries
+kba
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+backups/
+logs/*.log
+config.yaml
+.env
+inno-swe-*.json
+tmp/
+.kroombox/

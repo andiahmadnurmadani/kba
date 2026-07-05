@@ -1,0 +1,15 @@
+[Unit]
+Description=Kroombox Backup Agent
+Documentation=https://github.com/kroombox/kroombox-backup-agent
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kba backup
+User=root
+Nice=19
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

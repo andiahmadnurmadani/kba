@@ -1,0 +1,17 @@
+server:
+  name: ""  # auto: uses hostname
+
+backup:
+  mysql: auto
+  postgres: auto
+  mongodb: auto
+  nginx: auto
+  pm2: auto
+  docker: auto
+  ssl: auto
+  git: auto
+  cron: auto
+
+storage:
+  type: local
+  destination: /var/backups/kroombox
