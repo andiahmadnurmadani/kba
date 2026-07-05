@@ -9,7 +9,6 @@ import (
 )
 
 const repoURL = "https://github.com/andiahmadnurmadani/kba.git"
-const currentVersion = "1.0.0"
 
 func Run() error {
 	tmpDir := filepath.Join(os.TempDir(), "kba-update")
@@ -18,10 +17,8 @@ func Run() error {
 	fmt.Println("  Checking for updates...")
 
 	// Clean up any stale clone
-	if err := os.RemoveAll(tmpDir); err != nil {
-		// Try with sudo if permission denied
-		exec.Command("sudo", "rm", "-rf", tmpDir).Run()
-	}
+	os.RemoveAll(tmpDir)
+	exec.Command("sudo", "rm", "-rf", tmpDir).Run()
 
 	// Clone
 	fmt.Println("  Downloading latest version...")
@@ -29,16 +26,33 @@ func Run() error {
 
 	cmd := exec.Command("git", "clone", "--depth", "1", repoURL, tmpDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		// Try again with clean dir
 		os.RemoveAll(tmpDir)
-		cmd = exec.Command("git", "clone", "--depth", "1", repoURL, tmpDir)
-		if out2, err2 := cmd.CombinedOutput(); err2 != nil {
-			return fmt.Errorf("clone failed: %s", strings.TrimSpace(string(out2)))
-		}
-		_ = out
+		return fmt.Errorf("clone failed: %s", strings.TrimSpace(string(out)))
 	}
 
-	// Get latest version from cloned repo's main.go
+	// Get HEAD commit hash from cloned repo
+	cmd = exec.Command("git", "-C", tmpDir, "rev-parse", "--short", "HEAD")
+	remoteHash, _ := cmd.Output()
+	remoteHashStr := strings.TrimSpace(string(remoteHash))
+
+	// Get local commit hash (if available)
+	localHashStr := ""
+	if localHash, err := exec.Command("git", "-C", filepath.Dir(os.Args[0]), "rev-parse", "--short", "HEAD").Output(); err == nil {
+		localHashStr = strings.TrimSpace(string(localHash))
+	}
+	if localHashStr == "" {
+		// Try the source directory
+		if localHash, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output(); err == nil {
+			localHashStr = strings.TrimSpace(string(localHash))
+		}
+	}
+
+	// Also get commit message
+	cmd = exec.Command("git", "-C", tmpDir, "log", "--oneline", "-1")
+	msg, _ := cmd.Output()
+	msgStr := strings.TrimSpace(string(msg))
+
+	// Get version string from cloned main.go
 	latestVersion := ""
 	versionFile := filepath.Join(tmpDir, "main.go")
 	if data, err := os.ReadFile(versionFile); err == nil {
@@ -53,16 +67,26 @@ func Run() error {
 		}
 	}
 
-	// Check if update needed
-	if latestVersion == currentVersion || latestVersion == "" {
-		fmt.Printf("  %s KBA v%s - already up to date%s\n", "\033[32m\u2713\033[0m", currentVersion, "\033[0m")
+	// Check if update needed (compare commit hashes)
+	if localHashStr != "" && localHashStr == remoteHashStr {
+		fmt.Printf("  %s KBA v%s - already up to date (commit %s)%s\n", "\033[32m\u2713\033[0m", latestVersion, localHashStr, "\033[0m")
 		fmt.Println()
-		fmt.Println("  No update available.")
+		fmt.Println("  Your version matches the latest commit.")
 		os.RemoveAll(tmpDir)
 		return nil
 	}
 
-	fmt.Printf("  %s v%s -> v%s - updating...%s\n", "\033[33m\u2191\033[0m", currentVersion, latestVersion, "\033[0m")
+	// Show what's new
+	fmt.Println()
+	fmt.Printf("  %s Update available!%s\n", "\033[33m\u2191\033[0m", "\033[0m")
+	if latestVersion != "" && localHashStr != "" {
+		fmt.Printf("  v%s (commit %s) \u2192 v%s (commit %s)\n", "1.0.0", localHashStr, latestVersion, remoteHashStr)
+	} else {
+		fmt.Printf("  Commit: %s \u2192 %s\n", localHashStr, remoteHashStr)
+	}
+	if msgStr != "" {
+		fmt.Printf("  Latest: %s\n", msgStr)
+	}
 	fmt.Println()
 
 	// Build
@@ -118,12 +142,10 @@ func Run() error {
 			sudoPrefix = "sudo -A"
 		}
 
-		// Remove old binary first, then copy
 		exec.Command("sh", "-c", sudoPrefix+" rm -f "+destPath).Run()
 		exec.Command("sh", "-c", sudoPrefix+" cp "+binaryPath+" "+destPath).Run()
 		exec.Command("sh", "-c", sudoPrefix+" chmod +x "+destPath).Run()
 
-		// Verify
 		if _, err := os.Stat(destPath); err != nil {
 			os.RemoveAll(tmpDir)
 			return fmt.Errorf("install failed - try: sudo kba update")
@@ -138,10 +160,17 @@ func Run() error {
 
 	// Success
 	fmt.Println()
-	fmt.Println("  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u250c")
-	fmt.Println("  \u2502  \u2713 KBA updated: v" + currentVersion + " \u2192 v" + latestVersion + "    \u2502")
-	fmt.Println("  \u2502  Run 'kba version' to confirm.          \u2502")
-	fmt.Println("  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518")
+	boxWidth := 44
+	title := fmt.Sprintf("\u2713 KBA updated: %s \u2192 %s", localHashStr[:6], remoteHashStr[:6])
+	if latestVersion != "" {
+		title = fmt.Sprintf("\u2713 KBA v%s updated", latestVersion)
+	}
+	padding := boxWidth - len(title) - 2
+	if padding < 0 { padding = 0 }
+	fmt.Printf("  \u250c%s\u2510\n", strings.Repeat("\u2500", boxWidth))
+	fmt.Printf("  \u2502  %s%s \u2502\n", title, strings.Repeat(" ", padding))
+	fmt.Printf("  \u2502  Run 'kba version' to confirm.     \u2502\n")
+	fmt.Printf("  \u2514%s\u2518\n", strings.Repeat("\u2500", boxWidth))
 	fmt.Println()
 	return nil
 }
