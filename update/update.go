@@ -107,7 +107,7 @@ func Run() error {
 	cmd.Env = buildEnv
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Try with full go path
-		for _, gp := range []string{"/usr/local/go/bin/go", "/usr/lib/go/bin/go"} {
+		for _, gp := range []string{"/usr/local/go/bin/go", "/usr/lib/go/bin/go", "/opt/homebrew/bin/go", "/opt/homebrew/opt/go/libexec/bin/go"} {
 			if _, e := os.Stat(gp); e == nil {
 				cmd = exec.Command(gp, "build", "-ldflags=-s -w", "-o", "kba", ".")
 				cmd.Dir = tmpDir

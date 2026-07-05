@@ -25,6 +25,11 @@ type BackupModule interface {
 }
 
 // checkMySQLLogin checks if mysql client can connect
+func mysqlCnfPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".my.cnf")
+}
+
 func checkMySQLLogin() bool {
 	cmd := exec.Command("mysql", "-e", "SELECT 1", "--batch", "--skip-column-names")
 	out, err := cmd.Output()
@@ -73,7 +78,7 @@ func (m *MySQLModule) Backup(dir string) (*BackupResult, error) {
 	}
 
 	// List user databases (skip system DBs)
-	listCmd := exec.Command("mysql", "-e", "SHOW DATABASES", "--batch", "--skip-column-names")
+	listCmd := exec.Command("mysql", "--defaults-file="+mysqlCnfPath(), "-e", "SHOW DATABASES", "--batch", "--skip-column-names")
 	out, err := listCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("list databases: %w", err)
@@ -105,7 +110,7 @@ func (m *MySQLModule) Backup(dir string) (*BackupResult, error) {
 	if err != nil { return nil, fmt.Errorf("create dump file: %w", err) }
 	defer f.Close()
 
-	args := []string{"--databases", "--single-transaction", "--routines", "--triggers"}
+	args := []string{"--defaults-file="+mysqlCnfPath(), "--databases", "--single-transaction", "--routines", "--triggers"}
 	args = append(args, dbs...)
 	dumpCmd := exec.Command("mysqldump", args...)
 	dumpCmd.Stdout = f

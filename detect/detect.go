@@ -49,6 +49,15 @@ func commandVersion(name string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+func getHostname() string {
+	if runtime.GOOS == "darwin" {
+		out, _ := exec.Command("scutil", "--get", "ComputerName").Output()
+		if len(out) > 0 { return strings.TrimSpace(string(out)) }
+	}
+	out, _ := exec.Command("hostname").Output()
+	return strings.TrimSpace(string(out))
+}
+
 func Detect() *Result {
 	res := &Result{
 		Hostname: commandVersion("hostname"),

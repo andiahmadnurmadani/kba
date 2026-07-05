@@ -74,10 +74,17 @@ func Run() error {
 	home, _ := os.UserHomeDir()
 	removePath(filepath.Join(home, ".kroombox"))
 
-	// 5. Remove logs
-	fmt.Println("  • Removing logs...")
-	os.RemoveAll("logs")
-	os.RemoveAll("backups") // project-level test dirs
+	// 5. Remove project-level files (only if they look like KBA dirs)
+	fmt.Println("  • Removing project files...")
+	for _, dir := range []string{"logs", "backups"} {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			// Only delete if it looks like our directory
+			entries, _ := os.ReadDir(dir)
+			if len(entries) > 0 {
+				os.RemoveAll(dir)
+			}
+		}
+	}
 
 	// 6. Remove source (if in home)
 	srcDir := filepath.Join(home, "kroombox-backup-agent")
