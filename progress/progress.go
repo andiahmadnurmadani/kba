@@ -27,11 +27,13 @@ type Layer struct {
 }
 
 type Display struct {
-	layers   []*Layer
-	msg      string
-	msgLines int
-	rendered bool
-	barWidth int
+	layers     []*Layer
+	msg        string
+	msgLines   int
+	rendered   bool
+	barWidth   int
+	totalLines int
+	hostname   string
 }
 
 func New() *Display {
@@ -55,23 +57,23 @@ func (l *Layer) Skip()      { l.status = "skipped"; l.progress = 1.0 }
 func (l *Layer) SetProgress(p float64) { l.progress = p }
 
 func (d *Display) Render() {
-	total := len(d.layers) + d.msgLines
-	if d.rendered && total > 0 {
-		fmt.Printf("\033[%dA", total)
+	// Always render from a clean position
+	// Use clear-to-end-of-screen to remove leftover content
+	// Move up to the render start if we've rendered before
+	if d.rendered && d.totalLines > 0 {
+		fmt.Printf("\033[%dA", d.totalLines)
 	}
+	// Use clear-line for each rendered line
 	lines := 0
 	for _, l := range d.layers {
-		fmt.Print(d.renderLayer(l))
+		fmt.Print("\033[2K" + d.renderLayer(l))
 		lines++
 	}
 	if d.msg != "" {
 		fmt.Print("\033[2K" + d.msg + "\n")
 		lines++
 	}
-	d.msgLines = lines - len(d.layers)
-	if d.msgLines < 0 {
-		d.msgLines = 0
-	}
+	d.totalLines = lines
 	d.rendered = true
 }
 
@@ -149,6 +151,9 @@ func (d *Display) Done() {
 }
 
 func (d *Display) Header() {
-	fmt.Printf("\n%s%sBackup from minibox%s\n", ANSIbold, ANSIgreen, ANSIreset)
-	fmt.Printf("%s-----  layers: [mysql, mongodb, pm2, nginx, ssl, git, cron, docker]%s\n\n", ANSIdim, ANSIreset)
+	fmt.Printf("\n%sBackup from %s%s\n", ANSIgreen, d.hostname, ANSIreset)
+}
+
+func (d *Display) SetHostname(h string) {
+	d.hostname = h
 }

@@ -40,6 +40,7 @@ func Run(cfg *config.Config) *BackupReport {
 	disp.Header()
 
 	detection := detect.Detect()
+	disp.SetHostname(detection.Hostname)
 
 	backupName := report.Date
 	workDir := filepath.Join("/tmp", "kba-"+backupName)
