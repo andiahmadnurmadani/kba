@@ -72,13 +72,42 @@ func (m *MySQLModule) Backup(dir string) (*BackupResult, error) {
 		return result, nil
 	}
 
-	// Single dump: all databases
+	// List user databases (skip system DBs)
+	listCmd := exec.Command("mysql", "-e", "SHOW DATABASES", "--batch", "--skip-column-names")
+	out, err := listCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list databases: %w", err)
+	}
+
+	skipDBs := map[string]bool{
+		"information_schema": true,
+		"performance_schema": true,
+		"mysql":             true,
+		"sys":               true,
+	}
+	var dbs []string
+	for _, db := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		db = strings.TrimSpace(db)
+		if db != "" && !skipDBs[db] {
+			dbs = append(dbs, db)
+		}
+	}
+
+	if len(dbs) == 0 {
+		result.Skipped = true
+		result.Reason = "no user databases found"
+		return result, nil
+	}
+
+	// Dump only user databases
 	dumpFile := filepath.Join(outDir, "all.sql")
 	f, err := os.Create(dumpFile)
 	if err != nil { return nil, fmt.Errorf("create dump file: %w", err) }
 	defer f.Close()
 
-	dumpCmd := exec.Command("mysqldump", "--all-databases", "--single-transaction", "--routines", "--triggers")
+	args := []string{"--databases", "--single-transaction", "--routines", "--triggers"}
+	args = append(args, dbs...)
+	dumpCmd := exec.Command("mysqldump", args...)
 	dumpCmd.Stdout = f
 	if err := dumpCmd.Run(); err != nil {
 		os.Remove(dumpFile)
@@ -88,7 +117,6 @@ func (m *MySQLModule) Backup(dir string) (*BackupResult, error) {
 	fi, _ := os.Stat(dumpFile)
 	if fi != nil { result.Size = fi.Size() }
 	result.Success = true
-	result.Skipped = false
 	return result, nil
 }
 
