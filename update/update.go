@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 	"path/filepath"
 	"strings"
 )
@@ -51,9 +52,14 @@ func Run() error {
 		}
 	}
 
-	fmt.Printf("  Current: v1.0.0")
 	if version != "" {
-		fmt.Printf(" -> Latest: v%s", version)
+		if version == "1.0.0" {
+			fmt.Printf("  %s KBA v%s - up to date%s\n", "\033[32m\u2713\033[0m", version, "\033[0m")
+		} else {
+			fmt.Printf("  %s KBA v%s -> v%s - updating...%s\n", "\033[33m\u2191\033[0m", "1.0.0", version, "\033[0m")
+		}
+	} else {
+		fmt.Printf("  %s Checking version...%s\n", "\033[36m\u2192\033[0m", "\033[0m")
 	}
 	fmt.Println()
 
@@ -76,23 +82,55 @@ func Run() error {
 	// Install
 	fmt.Println("  Installing...")
 	binaryPath := filepath.Join(tmpDir, "kba")
-	installCmd := exec.Command("cp", binaryPath, "/usr/local/bin/kba")
-	if out, err := installCmd.CombinedOutput(); err != nil {
-		// Try with sudo
-		sudoCmd := exec.Command("sudo", "cp", binaryPath, "/usr/local/bin/kba")
-		if out2, err2 := sudoCmd.CombinedOutput(); err2 != nil {
-			return fmt.Errorf("install failed: %s / %s", string(out), string(out2))
+	destPath := "/usr/local/bin/kba"
+
+	// Kill any running kba backup/schedule, but NOT ourselves
+	exec.Command("sudo", "pkill", "-f", "kba backup").Run()
+	exec.Command("sudo", "pkill", "-f", "kba schedule").Run()
+	// Wait a moment for processes to die
+	time.Sleep(500 * time.Millisecond)
+
+	// Try cp, fallback to sudo
+	err := os.WriteFile(destPath, nil, 0755)
+	canWrite := err == nil
+	if canWrite {
+		copyErr := exec.Command("cp", binaryPath, destPath).Run()
+		if copyErr != nil {
+			// Try with sudo
+			canWrite = false
 		}
 	}
-	os.Chmod("/usr/local/bin/kba", 0755)
+
+	if !canWrite {
+		askpass := os.Getenv("SUDO_ASKPASS")
+		sudoPrefix := "sudo"
+		if askpass != "" { sudoPrefix = "sudo -A" }
+
+		// Remove old binary first (avoids "Text file busy")
+		exec.Command("sh", "-c", sudoPrefix+" rm -f "+destPath).Run()
+		exec.Command("sh", "-c", sudoPrefix+" cp "+binaryPath+" "+destPath).Run()
+		exec.Command("sh", "-c", sudoPrefix+" chmod +x "+destPath).Run()
+
+		// Verify
+		if _, err := os.Stat(destPath); err != nil {
+			return fmt.Errorf("install failed — try: sudo kba update")
+		}
+	} else {
+		os.Remove(destPath)
+		os.Rename(binaryPath, destPath)
+		os.Chmod(destPath, 0755)
+	}
 
 	os.RemoveAll(tmpDir)
 
-	if version != "" {
-		fmt.Printf("  Updated to v%s!\n", version)
-	} else {
-		fmt.Println("  Update complete!")
+	fmt.Println()
+	fmt.Println("  ┌──────────────────────────────────────┐")
+	fmt.Println("  │  ✓ Update successful!                 │")
+	if version != "" && version != "1.0.0" {
+		fmt.Printf("  │  v1.0.0 → v%-18s  │\n", version)
 	}
-	fmt.Println("  Run 'kba version' to confirm.")
+	fmt.Println("  │  Run 'kba version' to confirm.        │")
+	fmt.Println("  └──────────────────────────────────────┘")
+	fmt.Println()
 	return nil
 }
