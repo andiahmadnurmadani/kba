@@ -100,6 +100,12 @@ func findConfig() string {
 func cmdBackup() {
 	db.Init()
 	defer db.Close()
+	// Check if setup has been completed
+	if !setup.IsConfigured() {
+		setup.CheckAndWarn()
+		fmt.Println("  Run 'kba setup' to configure first, then run 'kba backup' again.")
+		os.Exit(1)
+	}
 	// Parse --config flag from remaining args
 	cfgPath := ""
 	if len(os.Args) > 2 {
@@ -240,7 +246,7 @@ func cmdSchedule() {
 }
 
 func cmdSetup() {
-	if err := setup.RunCredentialWizard(); err != nil {
+	if err := setup.RunWizard(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
