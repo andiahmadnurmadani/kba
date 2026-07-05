@@ -6,7 +6,6 @@ kba
 
 # Go
 vendor/
-go.sum
 
 # IDE
 .idea/
