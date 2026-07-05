@@ -115,13 +115,45 @@ func RunInteractive() error {
 		selectedServices = available
 	}
 
-	// ── Step 3: Confirm ──
+	// ── Step 3: Destination ──
 	fmt.Println()
-	fmt.Printf("  %sStep 3/3: Confirm%s\n", tui.Bold, tui.Reset)
+	fmt.Printf("  %sStep 3/4: Restore Destination%s\n", tui.Bold, tui.Reset)
 	fmt.Println()
-	fmt.Printf("  Backup:  %s\n", selected.Date)
-	fmt.Printf("  Source:  %s\n", selected.Path)
-	fmt.Printf("  Restore: %s\n", strings.Join(selectedServices, ", "))
+	fmt.Println("  1) Restore to original location (e.g. MySQL→mysql, Nginx→/etc/nginx/)")
+	fmt.Println("  2) Restore to a custom folder (dry-run / preview)")
+	fmt.Println()
+	fmt.Print("  Choice [1]: ")
+	var destChoice int
+	fmt.Scanf("%d\n", &destChoice)
+
+	customDest := ""
+	if destChoice == 2 {
+		fmt.Println()
+		fmt.Print("  Destination folder: ")
+		customDest, _ = reader.ReadString('\n')
+		customDest = strings.TrimSpace(customDest)
+		if customDest == "" {
+			customDest = "./restored"
+		}
+		fmt.Printf("  %s Files will be saved to: %s%s\n", tui.Yellow, customDest, tui.Reset)
+		fmt.Println("  (No system changes will be made)")
+	} else {
+		fmt.Println("  %s Restoring to original locations %s(may need sudo)%s\n", tui.Green, tui.Yellow, tui.Reset)
+	}
+	fmt.Println()
+
+	// ── Step 4: Confirm ──
+	fmt.Println()
+	fmt.Printf("  %sStep 4/4: Confirm%s\n", tui.Bold, tui.Reset)
+	fmt.Println()
+	fmt.Printf("  Backup:    %s\n", selected.Date)
+	fmt.Printf("  Source:    %s\n", selected.Path)
+	fmt.Printf("  Restore:   %s\n", strings.Join(selectedServices, ", "))
+	if destChoice == 2 {
+		fmt.Printf("  Dest:      %s (custom folder)\n", customDest)
+	} else {
+		fmt.Printf("  Dest:      original locations\n")
+	}
 	fmt.Println()
 	fmt.Print("  Start restore? [Y/n]: ")
 	confirm, _ := reader.ReadString('\n')
@@ -142,17 +174,25 @@ func RunInteractive() error {
 		}
 		fmt.Printf("  %s %s: restoring...%s\n", tui.Cyan, svc, tui.Reset)
 
-		switch svc {
-		case "mysql":
-			restoreMySQL(svcDir)
-		case "mongodb":
-			restoreMongo(svcDir)
-		case "pm2":
-			restorePM2(svcDir)
-		case "nginx":
-			restoreFile("Nginx", svcDir, "/etc/nginx/")
-		default:
-			restoreFile(svc, svcDir, "./restored_"+svc)
+		if destChoice == 2 {
+			// Custom destination: copy files as-is
+			svcDest := filepath.Join(customDest, svc)
+			copyDir(svcDir, svcDest)
+			fmt.Printf("    %s Copied to %s%s\n", tui.Green, svcDest, tui.Reset)
+		} else {
+			// Original location restore
+			switch svc {
+			case "mysql":
+				restoreMySQL(svcDir)
+			case "mongodb":
+				restoreMongo(svcDir)
+			case "pm2":
+				restorePM2(svcDir)
+			case "nginx":
+				restoreFile("Nginx", svcDir, "/etc/nginx/")
+			default:
+				restoreFile(svc, svcDir, "./restored_"+svc)
+			}
 		}
 	}
 
@@ -295,6 +335,23 @@ func restorePM2(dir string) {
 	if _, err := os.Stat(pm2File); err == nil {
 		exec.Command("pm2", "start", pm2File).Run()
 		fmt.Printf("    %s PM2 restored%s\n", tui.Green, tui.Reset)
+	}
+}
+
+func copyDir(src, dst string) {
+	os.MkdirAll(dst, 0755)
+	entries, _ := os.ReadDir(src)
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			copyDir(srcPath, dstPath)
+		} else {
+			data, err := os.ReadFile(srcPath)
+			if err == nil {
+				os.WriteFile(dstPath, data, 0644)
+			}
+		}
 	}
 }
 
