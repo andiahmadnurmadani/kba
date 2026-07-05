@@ -59,16 +59,16 @@ func Run() error {
 
 	// Download & build
 	fmt.Println("  Building...")
-	env := append(os.Environ(),
+	buildEnv := append(os.Environ(),
 		"GONOSUMCHECK=*",
 		"GONOSUMDB=*",
 		"GOFLAGS=-mod=mod",
 		"GOPROXY=https://proxy.golang.org,direct",
 	)
 
-	cmd := exec.Command(goPath, "build", "-ldflags=-s -w", "-o", "kba", ".")
+	cmd = exec.Command(goPath, "build", "-ldflags=-s -w", "-o", "kba", ".")
 	cmd.Dir = tmpDir
-	cmd.Env = env
+	cmd.Env = buildEnv
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("build failed: %s", string(out))
 	}
