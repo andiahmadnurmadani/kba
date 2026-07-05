@@ -309,7 +309,6 @@ Description=Kroombox Backup Timer (%s)
 
 [Timer]
 %s
-RandomizedDelaySec=30m
 
 [Install]
 WantedBy=timers.target
@@ -524,6 +523,10 @@ func Describe() error {
 						// Try to convert to configured timezone
 						converted := convertTZ(val, tzName)
 						fmt.Printf("  Next run:  %s\n", converted)
+						// Show the scheduled time
+						if t, err := time.Parse("Mon 02-Jan-2006 15:04:05", converted); err == nil {
+							fmt.Printf("  Scheduled: %s\n", t.Format("Mon 02-Jan-2006 15:04:05"))
+						}
 					}
 				} else if strings.Contains(prop, "LastTrigger") {
 					val := strings.TrimPrefix(prop, "LastTriggerUSec=")
