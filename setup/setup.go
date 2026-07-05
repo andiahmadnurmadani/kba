@@ -140,28 +140,35 @@ func setupCredentials(reader *bufio.Reader, d *detect.Result) error {
 			}
 			fmt.Printf("  %sMySQL%s requires login credentials.\n", tui.Bold, tui.Reset)
 			fmt.Println()
-			fmt.Print("  MySQL user [root]: ")
-			user, _ := reader.ReadString('\n')
-			user = strings.TrimSpace(user)
-			if user == "" {
-				user = "root"
-			}
-			fmt.Print("  MySQL password (enter for socket auth): ")
-			pass, _ := reader.ReadString('\n')
-			pass = strings.TrimSpace(pass)
-			home, _ := os.UserHomeDir()
-			cnfPath := filepath.Join(home, ".my.cnf")
-			if pass == "" {
-				content := "[client]\nuser=" + user + "\nsocket=/var/run/mysqld/mysqld.sock"
-				os.WriteFile(cnfPath, []byte(content), 0600)
-			} else {
-				content := "[client]\nuser=" + user + "\npassword=" + pass
-				os.WriteFile(cnfPath, []byte(content), 0600)
-			}
-			if checkMySQLLogin() {
-				fmt.Printf("  %s MySQL login OK!%s\n", tui.Green, tui.Reset)
-			} else {
-				fmt.Printf("  %s MySQL login failed — check credentials%s\n", tui.Yellow, tui.Reset)
+			
+			for attempt := 0; attempt < 5; attempt++ {
+				fmt.Print("  MySQL user [root]: ")
+				user, _ := reader.ReadString('\n')
+				user = strings.TrimSpace(user)
+				if user == "" {
+					user = "root"
+				}
+				fmt.Print("  MySQL password (enter for socket auth): ")
+				pass, _ := reader.ReadString('\n')
+				pass = strings.TrimSpace(pass)
+				home, _ := os.UserHomeDir()
+				cnfPath := filepath.Join(home, ".my.cnf")
+				if pass == "" {
+					content := "[client]\nuser=" + user + "\nsocket=/var/run/mysqld/mysqld.sock"
+					os.WriteFile(cnfPath, []byte(content), 0600)
+				} else {
+					content := "[client]\nuser=" + user + "\npassword=" + pass
+					os.WriteFile(cnfPath, []byte(content), 0600)
+				}
+				if checkMySQLLogin() {
+					fmt.Printf("  %s MySQL login OK!%s\n", tui.Green, tui.Reset)
+					break
+				}
+				if attempt < 4 {
+					fmt.Printf("  %s Login failed (%d/5). Try again.%s\n", tui.Yellow, attempt+1, tui.Reset)
+				} else {
+					fmt.Printf("  %s Login failed after 5 attempts. Skipping MySQL.%s\n", tui.Yellow, tui.Reset)
+				}
 			}
 
 		case "postgres":

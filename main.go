@@ -246,6 +246,8 @@ func cmdSchedule() {
 }
 
 func cmdSetup() {
+	db.Init()
+	defer db.Close()
 	if err := setup.RunWizard(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
