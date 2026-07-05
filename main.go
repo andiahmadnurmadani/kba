@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"kroombox-backup-agent/scheduler"
 	"kroombox-backup-agent/tui"
+	"kroombox-backup-agent/uninstall"
 )
 
 const version = "1.0.0"
@@ -44,6 +45,8 @@ func main() {
 		cmdDetect()
 	case "schedule":
 		cmdSchedule()
+	case "uninstall":
+		cmdUninstall()
 	case "setup":
 		cmdSetup()
 	case "update":
@@ -72,6 +75,7 @@ func printUsage() {
 	fmt.Println("  kba schedule --cleanup [days]  Delete backups older than N days (default 7)")
 	fmt.Println("  kba schedule --daily [HH:MM]  Quick daily schedule (default WIB)")
 	fmt.Println("  kba schedule --cron 'EXPR'    Quick custom cron")
+	fmt.Println("  kba uninstall           Remove KBA (keeps backups)")
 	fmt.Println("  kba setup              Interactive credential setup")
 	fmt.Println("  kba update             Update to latest version")
 	fmt.Println("  kba logs               Show recent backup logs")
@@ -237,6 +241,13 @@ func cmdSchedule() {
 
 func cmdSetup() {
 	if err := setup.RunCredentialWizard(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func cmdUninstall() {
+	if err := uninstall.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
