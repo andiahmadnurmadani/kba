@@ -28,7 +28,7 @@ func Init(logDir string) error {
 		return fmt.Errorf("open log file: %w", err)
 	}
 
-	multi := io.MultiWriter(os.Stdout, f)
+	multi := io.MultiWriter(f)  // file only — stdout reserved for progress animation
 
 	defaultLogger = &Logger{
 		info:  log.New(multi, "INFO: ", log.Ldate|log.Ltime),
