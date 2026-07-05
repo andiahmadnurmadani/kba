@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
-# Kroombox Backup Agent (KBA) — Installer v1.0.0
-# Linux (x86_64, aarch64) + macOS (Intel, Apple Silicon)
+# Kroombox Backup Agent (KBA) — One-command Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/andiahmadnurmadani/kba/main/install.sh | bash
 # ─────────────────────────────────────────────
 
 set -uo pipefail
-# Note: no 'set -e' - we handle errors manually
-
-BIN_NAME="kba"
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/kroombox/backup-agent"
-BACKUP_DIR="/var/backups/kroombox"
-KBA_VERSION="1.0.0"
-SELF="$(cd "$(dirname "$0")" && pwd)"
+SELF="$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+CHECK="\xE2\x9C\x94"; CROSS="\xE2\x9C\x98"; BULLET="\xE2\x80\xA2"
 
-info()  { echo -e "${CYAN}[..]${NC} $1"; }
-ok()    { echo -e "${GREEN}[✔]${NC} $1"; }
-warn()  { echo -e "${YELLOW}[!]${NC} $1"; }
-fail()  { echo -e "${RED}[✘]${NC} $1"; }
+info()  { echo -e "  ${CYAN}${BULLET}${NC} $1"; }
+ok()    { echo -e "  ${GREEN}${CHECK}${NC} $1"; }
+warn()  { echo -e "  ${YELLOW}${BULLET}${NC} $1"; }
+fail()  { echo -e "  ${RED}${CROSS}${NC} $1"; }
 
-# ── Pre-flight ──
-preflight() {
-	echo -e "\n${BOLD}Kroombox Backup Agent v${KBA_VERSION} — Installer${NC}"
-	echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-
-	# OS detection
+# ── Detect OS ──
+detect_os() {
 	case "$(uname -s)" in
 		Linux*)  OS="linux" ;;
 		Darwin*) OS="darwin" ;;
@@ -37,107 +27,187 @@ preflight() {
 		aarch64|arm64) ARCH="arm64" ;;
 		*) fail "Unsupported arch: $(uname -m)"; exit 1 ;;
 	esac
-	info "Detected: ${OS} (${ARCH})"
-
-	# Required tools
-	info "Checking prerequisites..."
-	local missing=0
-	for cmd in curl tar git; do
-		if ! command -v "$cmd" &>/dev/null; then
-			fail "Missing: $cmd"
-			missing=1
-		fi
-	done
-
-	# Go is optional (we'll install if missing)
-	if ! command -v go &>/dev/null; then
-		warn "Go not found — will install"
-	fi
-
-	# Sudo check
-	if ! command -v sudo &>/dev/null; then
-		warn "sudo not found — some steps may fail"
-	fi
-
-	return $missing
 }
 
-# ── Install Go ──
-install_go() {
-	if command -v go &>/dev/null && [ "$(go version | head -c14)" = "go version go1" ]; then
-		ok "Go $(go version | awk '{print $3}')"
-		return 0
-	fi
+detect_os
 
-	warn "Installing Go 1.23.4..."
-	local tarball="go1.23.4.${OS}-${ARCH}.tar.gz"
-	curl -fsSL "https://go.dev/dl/${tarball}" -o /tmp/go.tar.gz || {
-		fail "Download failed (no internet?)"
-		return 1
+# ── Check what's installed ──
+check_status() {
+	local cmd=$1
+	if command -v "$cmd" &>/dev/null; then
+		echo -e "${GREEN}${CHECK}${NC}"
+	else
+		echo -e "${RED}${CROSS}${NC}"
+	fi
+}
+
+get_version() {
+	local cmd=$1
+	command -v "$cmd" &>/dev/null && $cmd --version 2>/dev/null | head -1 || echo "-"
+}
+
+echo ""
+echo -e "  ${BOLD}╔══════════════════════════════════════════════╗${NC}"
+echo -e "  ${BOLD}║   Kroombox Backup Agent (KBA) Installer     ║${NC}"
+echo -e "  ${BOLD}╚══════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  ${CYAN}System:${NC}  ${OS} (${ARCH})"
+echo ""
+
+# ── Pre-install Summary ──
+echo -e "  ${BOLD}Installation Plan:${NC}"
+echo ""
+
+# Go
+GO_STATUS=$(check_status go)
+echo -e "  ${BULLET} Go language       ${GO_STATUS}    Build & compile KBA"
+if command -v go &>/dev/null; then
+	GO_VER=$(go version | awk '{print $3}')
+	echo -e "                       ${YELLOW}${GO_VER} already installed${NC}"
+fi
+
+# Git
+GIT_STATUS=$(check_status git)
+echo -e "  ${BULLET} Git               ${GIT_STATUS}    Clone & version control"
+if command -v git &>/dev/null; then
+	GIT_VER=$(git --version | awk '{print $3}')
+	echo -e "                       ${YELLOW}${GIT_VER} already installed${NC}"
+fi
+
+echo ""
+
+# ── Backup Modules ──
+echo -e "  ${BOLD}Backup Modules:${NC}"
+echo ""
+
+for tool in mysqldump pg_dumpall mongodump pm2 docker nginx; do
+	status=$(check_status "$tool")
+	case "$tool" in
+		mysqldump)  DESC="MySQL/MariaDB databases" ;;
+		pg_dumpall) DESC="PostgreSQL databases" ;;
+		mongodump)  DESC="MongoDB databases" ;;
+		pm2)        DESC="PM2 process manager" ;;
+		docker)     DESC="Docker containers" ;;
+		nginx)      DESC="Nginx configuration" ;;
+	esac
+	echo -e "  ${BULLET} $tool\t${status}\t${DESC}"
+done
+
+echo ""
+echo -e "  ${BOLD}Target:${NC}"
+echo -e "  ${BULLET} Binary:  ${CYAN}/usr/local/bin/kba${NC}"
+echo -e "  ${BULLET} Config:  ${CYAN}/etc/kroombox/backup-agent/config.yaml${NC}"
+echo -e "  ${BULLET} Backups: ${CYAN}/var/backups/kroombox/${NC}"
+echo -e "  ${BULLET} DB:      ${CYAN}~/.kroombox/backup-agent.db${NC} (SQLite)"
+echo ""
+
+# ── Confirmation ──
+if [ "${KBA_AUTO:-}" != "1" ]; then
+	echo -e "  ${YELLOW}Press Enter to start installation, or Ctrl+C to cancel...${NC}"
+	read -r </dev/tty || read -r || true
+fi
+
+echo ""
+echo -e "  ${CYAN}━━━━━━━━━━━━━━━━━━━━━ Installing ─${NC}"
+echo ""
+
+# ── Step 1: Install missing core deps ──
+if ! command -v git &>/dev/null; then
+	info "Installing Git..."
+	case "$OS" in
+		linux)
+			sudo apt-get update -qq && sudo apt-get install -y -qq git 2>/dev/null ||
+			sudo yum install -y git 2>/dev/null ||
+			sudo pacman -S --noconfirm git 2>/dev/null
+			;;
+		darwin)
+			if command -v brew &>/dev/null; then brew install git; fi
+			;;
+	esac
+	command -v git &>/dev/null && ok "Git installed"
+fi
+
+if ! command -v curl &>/dev/null; then
+	info "Installing curl..."
+	case "$OS" in
+		linux) sudo apt-get install -y -qq curl 2>/dev/null || sudo yum install -y curl 2>/dev/null ;;
+		darwin) brew install curl 2>/dev/null || true ;;
+	esac
+fi
+
+# ── Step 2: Install Go ──
+if ! command -v go &>/dev/null; then
+	info "Installing Go 1.23.4..."
+	GO_TAR="go1.23.4.${OS}-${ARCH}.tar.gz"
+	curl -fsSL "https://go.dev/dl/${GO_TAR}" -o /tmp/go.tar.gz || {
+		fail "Download failed — check internet connection"
+		exit 1
 	}
 	sudo rm -rf /usr/local/go
 	sudo tar -C /usr/local -xzf /tmp/go.tar.gz || {
 		fail "Extract failed"
-		return 1
+		exit 1
 	}
 	rm -f /tmp/go.tar.gz
 	export PATH="$PATH:/usr/local/go/bin"
 	echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc 2>/dev/null || true
-	if [ -f ~/.zshrc ]; then
-		echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.zshrc 2>/dev/null || true
-	fi
+	[ -f ~/.zshrc ] && echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.zshrc 2>/dev/null || true
+	hash -r 2>/dev/null || true
 	ok "Go $(/usr/local/go/bin/go version | awk '{print $3}')"
-}
+else
+	ok "Go $(go version | awk '{print $3}')"
+fi
 
-# ── Build ──
-build_kba() {
-	local src="$1"
-	info "Building KBA..."
-	cd "$src"
+# Ensure go is in PATH
+export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"
 
-	# Try online build first, fallback to offline
-	if go build -ldflags="-s -w" -o "$BIN_NAME" . 2>/dev/null; then
-		ok "Build complete ($(ls -lh $BIN_NAME | awk '{print $5}'))"
-		return 0
-	fi
-
-	# Offline mode (GOPROXY=off)
-	warn "Online build failed — trying offline mode..."
-	GONOSUMCHECK='*' GONOSUMDB='*' GOFLAGS="-mod=mod" GOPROXY=off 		go build -ldflags="-s -w" -o "$BIN_NAME" . 2>/dev/null && {
-		ok "Build complete (offline) ($(ls -lh $BIN_NAME | awk '{print $5}'))"
-		return 0
+# ── Step 3: Clone / Build ──
+BUILD_DIR=""
+if [ -f "$SELF/go.mod" ]; then
+	BUILD_DIR="$SELF"
+	info "Building from local source..."
+else
+	info "Cloning KBA repository..."
+	BUILD_DIR="/tmp/kba-build"
+	rm -rf "$BUILD_DIR"
+	git clone --depth 1 https://github.com/andiahmadnurmadani/kba.git "$BUILD_DIR" 2>/dev/null || {
+		fail "Clone failed"
+		exit 1
 	}
+	ok "Repository cloned"
+fi
 
-	fail "Build failed!"
-	return 1
-}
+cd "$BUILD_DIR"
 
-# ── Install Binary ──
-install_binary() {
-	info "Installing to ${INSTALL_DIR}/${BIN_NAME}..."
-	if [ -w "$INSTALL_DIR" ]; then
-		cp "$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
-		chmod +x "$INSTALL_DIR/$BIN_NAME"
-	else
-		sudo cp "$BIN_NAME" "$INSTALL_DIR/$BIN_NAME" 2>/dev/null || {
-			warn "Need sudo to install to ${INSTALL_DIR}"
-			sudo cp "$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
-		}
-		sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
-	fi
-	ok "Installed: $(which $BIN_NAME 2>/dev/null || echo "$INSTALL_DIR/$BIN_NAME")"
-}
+info "Building KBA binary..."
+# Offline build first, fallback to online
+if GONOSUMCHECK='*' GONOSUMDB='*' GOFLAGS="-mod=mod" GOPROXY=off \
+	go build -ldflags="-s -w" -o kba . 2>/dev/null; then
+	:
+elif go build -ldflags="-s -w" -o kba . 2>/dev/null; then
+	:
+else
+	fail "Build failed! Try: cd $BUILD_DIR && GOPROXY=https://proxy.golang.org,direct go build"
+	exit 1
+fi
+ok "KBA built ($(ls -lh kba | awk '{print $5}'))"
 
-# ── Config ──
-setup_config() {
-	if [ -f "$CONFIG_DIR/config.yaml" ]; then
-		ok "Config exists: $CONFIG_DIR/config.yaml"
-		return 0
-	fi
+# ── Step 4: Install Binary ──
+info "Installing binary..."
+if [ -w /usr/local/bin ]; then
+	cp kba /usr/local/bin/kba
+	chmod +x /usr/local/bin/kba
+else
+	sudo cp kba /usr/local/bin/kba
+	sudo chmod +x /usr/local/bin/kba
+fi
+ok "Installed: /usr/local/bin/kba"
 
-	info "Creating config..."
-	sudo mkdir -p "$CONFIG_DIR"
-	sudo tee "$CONFIG_DIR/config.yaml" > /dev/null << 'CONF'
+# ── Step 5: Setup Config ──
+info "Setting up configuration..."
+sudo mkdir -p /etc/kroombox/backup-agent
+if [ ! -f /etc/kroombox/backup-agent/config.yaml ]; then
+	sudo tee /etc/kroombox/backup-agent/config.yaml > /dev/null << 'CONF'
 server:
   name: ""
 backup:
@@ -154,33 +224,32 @@ storage:
   type: local
   destination: /var/backups/kroombox
 CONF
-	ok "Config: $CONFIG_DIR/config.yaml"
-}
+	ok "Config created"
+else
+	ok "Config exists"
+fi
 
-# ── Backup Directory ──
-setup_backup_dir() {
-	sudo mkdir -p "$BACKUP_DIR" 2>/dev/null || {
-		warn "Cannot create $BACKUP_DIR"
-		local home_backup="$HOME/backups/kroombox"
-		mkdir -p "$home_backup"
-		BACKUP_DIR="$home_backup"
-		warn "Using: $BACKUP_DIR"
-		# Update config
-		sudo sed -i "s|destination:.*|destination: $BACKUP_DIR|" "$CONFIG_DIR/config.yaml" 2>/dev/null || true
-		return 0
-	}
-	sudo chown "$(whoami)" "$BACKUP_DIR" 2>/dev/null || true
-	ok "Backup dir: $BACKUP_DIR"
-}
+# ── Step 6: Setup Backup Directory ──
+info "Setting up backup directory..."
+if sudo mkdir -p /var/backups/kroombox 2>/dev/null; then
+	sudo chown "$(whoami)" /var/backups/kroombox 2>/dev/null || true
+	ok "Backup dir: /var/backups/kroombox"
+else
+	mkdir -p "$HOME/backups/kroombox"
+	sudo sed -i 's|destination:.*|destination: '"$HOME/backups/kroombox"'|' /etc/kroombox/backup-agent/config.yaml
+	ok "Backup dir: $HOME/backups/kroombox (fallback)"
+fi
 
-# ── Service ──
-setup_service() {
-	case "$OS" in
-		linux)
-			if ! command -v systemctl &>/dev/null; then
-				warn "systemctl not found — skipping service (use cron instead)"
-				return 0
-			fi
+# ── Step 7: Init SQLite Database ──
+info "Initializing database..."
+mkdir -p "$HOME/.kroombox"
+/usr/local/bin/kba version &>/dev/null || true
+ok "SQLite database ready"
+
+# ── Step 8: Setup Service ──
+case "$OS" in
+	linux)
+		if command -v systemctl &>/dev/null; then
 			info "Installing systemd service..."
 			sudo tee /etc/systemd/system/kroombox-backup.service > /dev/null << 'SVC'
 [Unit]
@@ -196,11 +265,14 @@ IOSchedulingClass=idle
 SVC
 			sudo systemctl daemon-reload 2>/dev/null || true
 			ok "Service: kroombox-backup.service"
-			;;
-		darwin)
-			info "Installing launchd plist..."
-			mkdir -p ~/Library/LaunchAgents
-			cat > ~/Library/LaunchAgents/com.kroombox.backup-agent.plist << 'PLIST'
+		else
+			warn "systemctl not found — use 'kba schedule' for cron setup"
+		fi
+		;;
+	darwin)
+		info "Creating launchd plist..."
+		mkdir -p "$HOME/Library/LaunchAgents"
+		cat > "$HOME/Library/LaunchAgents/com.kroombox.backup-agent.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -223,90 +295,48 @@ SVC
 	<integer>19</integer>
 	<key>LowPriorityIO</key>
 	<true/>
-	<key>StandardOutPath</key>
-	<string>/tmp/kroombox-backup.log</string>
-	<key>StandardErrorPath</key>
-	<string>/tmp/kroombox-backup.err</string>
 </dict>
 </plist>
 PLIST
-			ok "LaunchAgent: ~/Library/LaunchAgents/com.kroombox.backup-agent.plist"
-			warn "Load with: launchctl load ~/Library/LaunchAgents/com.kroombox.backup-agent.plist"
-			;;
-	esac
-}
+		ok "LaunchAgent created"
+		warn "Run: launchctl load ~/Library/LaunchAgents/com.kroombox.backup-agent.plist"
+		;;
+esac
 
-# ── Post-install hints ──
-post_install_hints() {
-	echo ""
-	echo -e "${YELLOW}━━ Post-Install Hints ──${NC}"
+# ── Step 9: Post-install Summary ──
+echo ""
+echo -e "  ${GREEN}${BOLD}╔══════════════════════════════════════════╗${NC}"
+echo -e "  ${GREEN}${BOLD}║   Installation Complete!                  ║${NC}"
+echo -e "  ${GREEN}${BOLD}╚══════════════════════════════════════════╝${NC}"
+echo ""
 
-	# MySQL
-	if command -v mysql &>/dev/null; then
-		if [ ! -f ~/.my.cnf ]; then
-			echo -e "  ${YELLOW}MySQL detected — create ~/.my.cnf for passwordless backup:${NC}"
-			echo "    [client]"
-			echo "    user=root"
-			echo "    password=YOUR_PASSWORD"
-		else
-			ok "MySQL: ~/.my.cnf found"
-		fi
-	fi
+# Detect & show services
+echo -e "  ${BOLD}Detected Services:${NC}"
+/usr/local/bin/kba detect 2>/dev/null | while IFS= read -r line; do
+	echo "    $line"
+done
 
-	# PostgreSQL
-	if command -v psql &>/dev/null; then
-		echo -e "  ${YELLOW}PostgreSQL detected — set pg_hba.conf or ~/.pgpass for backup${NC}"
-	fi
-
-	# MongoDB
-	if command -v mongod &>/dev/null || command -v mongosh &>/dev/null; then
-		# Check if running
-		if ! pgrep -x mongod >/dev/null 2>&1; then
-			if [ "$OS" = "linux" ]; then
-				echo -e "  ${YELLOW}MongoDB: sudo systemctl start mongod${NC}"
-			else
-				echo -e "  ${YELLOW}MongoDB: brew services start mongod-community${NC}"
-			fi
-		else
-			ok "MongoDB is running"
-		fi
-	fi
-
-	# PM2
-	if command -v pm2 &>/dev/null; then
-		ok "PM2: $(pm2 --version 2>/dev/null || echo 'installed')"
-	else
-		echo -e "  ${YELLOW}PM2: npm install -g pm2${NC}"
-	fi
-
-	# ── Summary ──
-	echo ""
-	echo -e "${BOLD}✔ KBA installed successfully!${NC}"
-	echo ""
-	echo -e "  ${CYAN}kba backup${NC}       — Run backup"
-	echo -e "  ${CYAN}kba status${NC}       — Show status"
-	echo -e "  ${CYAN}kba detect${NC}       — Detect services"
-	echo -e "  ${CYAN}kba schedule${NC}     — Schedule backups"
-	echo -e "  ${CYAN}kba schedule --daily 09:00${NC}  — Quick daily WIB"
-	echo -e "  ${CYAN}kba schedule --cleanup 7${NC}    — Auto-cleanup"
-	echo ""
-	echo -e "  Config:  ${BOLD}$CONFIG_DIR/config.yaml${NC}"
-	echo -e "  Backups: ${BOLD}$BACKUP_DIR${NC}"
-	echo -e "  Logs:    ${BOLD}./logs/${NC}"
-	echo -e "  DB:      ${BOLD}~/.kroombox/backup-agent.db${NC}"
-	echo ""
-}
-
-# ── Main ──
-main() {
-	preflight || exit 1
-	install_go || exit 1
-	build_kba "$SELF" || exit 1
-	install_binary
-	setup_config
-	setup_backup_dir
-	setup_service
-	post_install_hints
-}
-
-main "$@"
+echo ""
+echo -e "  ${BOLD}Quick Start:${NC}"
+echo ""
+echo -e "    ${CYAN}kba backup${NC}              Run backup now"
+echo -e "    ${CYAN}kba status${NC}              Show status"
+echo -e "    ${CYAN}kba schedule${NC}            Setup automatic backup"
+echo -e "    ${CYAN}kba schedule --daily 09:00${NC}  Daily at 09:00 WIB"
+echo -e "    ${CYAN}kba schedule --cleanup 7${NC}    Auto-delete backups >7 days"
+echo -e "    ${CYAN}kba logs${NC}                View backup history"
+echo ""
+echo -e "  ${BOLD}Need credentials?${NC}"
+echo ""
+echo -e "    ${YELLOW}MySQL:${NC}"
+echo -e '      echo -e "[client]\\nuser=root\\npassword=YOUR_PASS" > ~/.my.cnf'
+echo -e "      chmod 600 ~/.my.cnf"
+echo ""
+echo -e "    ${YELLOW}PostgreSQL:${NC}"
+echo -e "      Set pg_hba.conf to 'local all all trust' or use .pgpass"
+echo ""
+echo -e "  ${BOLD}Schedule${NC}"
+echo -e "    ${CYAN}kba schedule${NC}  (interactive) or ${CYAN}kba schedule --daily 10:00${NC}"
+echo ""
+echo -e "  ${BOLD}GitHub:${NC} ${CYAN}https://github.com/andiahmadnurmadani/kba${NC}"
+echo ""
