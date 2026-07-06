@@ -6,10 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"kroombox-backup-agent/modules"
 	"runtime"
 	"time"
 	"kroombox-backup-agent/db"
-	"kroombox-backup-agent/modules"
 	"kroombox-backup-agent/tui"
 	"strings"
 )
@@ -657,7 +657,7 @@ func CleanupOldBackups(keepDays int, backupPath string) error {
 			filepath.Join(os.Getenv("HOME"), "backups/kroombox"),
 			"/var/backups/kroombox",
 		)
-		cutoff := time.Now().AddDate(0, 0, -keepDays)
+		cutoff := modules.NowInTZ().AddDate(0, 0, -keepDays)
 		for _, bd := range backupDirs {
 			if fi, err := os.Stat(bd); err != nil || !fi.IsDir() { continue }
 			entries, err := os.ReadDir(bd)

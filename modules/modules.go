@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type BackupResult struct {
@@ -525,6 +526,24 @@ func GetModules() []BackupModule {
 		&CronModule{},
 		&DockerModule{},
 	}
+}
+
+// TzLoc returns configured timezone location (default Asia/Jakarta)
+func TzLoc() *time.Location {
+	tz := os.Getenv("KBA_TZ")
+	if tz == "" {
+		tz = "Asia/Jakarta"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return time.FixedZone("WIB", 7*60*60)
+	}
+	return loc
+}
+
+// NowInTZ returns current time in configured timezone
+func NowInTZ() time.Time {
+	return time.Now().In(TzLoc())
 }
 
 func FormatSize(bytes int64) string {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	"kroombox-backup-agent/modules"
 
 	_ "modernc.org/sqlite"
 )
@@ -75,7 +75,7 @@ func SaveBackup(path, date string, size int64, services, hostname, status string
 // GetOldBackups returns backups older than keepDays
 func GetOldBackups(keepDays int) ([]BackupRecord, error) {
 	if conn == nil { return nil, fmt.Errorf("db not initialized") }
-	cutoff := time.Now().AddDate(0, 0, -keepDays).Format("2006-01-02")
+	cutoff := modules.NowInTZ().AddDate(0, 0, -keepDays).Format("2006-01-02")
 	rows, err := conn.Query(
 		"SELECT id, path, date, size, services, hostname, status FROM backups WHERE date < ? ORDER BY date",
 		cutoff,

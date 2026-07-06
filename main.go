@@ -344,7 +344,11 @@ func cmdLogs() {
 }
 
 func timeToWIB(t time.Time) time.Time {
-	loc, err := time.LoadLocation("Asia/Jakarta")
+	tz := os.Getenv("KBA_TZ")
+	if tz == "" {
+		tz = "Asia/Jakarta"
+	}
+	loc, err := time.LoadLocation(tz)
 	if err != nil {
 		return t
 	}

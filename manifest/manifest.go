@@ -3,6 +3,7 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"kroombox-backup-agent/modules"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,7 +25,7 @@ func New(hostname, os, kernel, arch string) *Manifest {
 		OS:         os,
 		Kernel:     kernel,
 		Arch:       arch,
-		BackupDate: time.Now().Format("2006-01-02"),
+		BackupDate: time.Now().In(modules.TzLoc()).Format("2006-01-02"),
 		Services:   make(map[string]bool),
 	}
 }

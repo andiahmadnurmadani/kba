@@ -29,7 +29,7 @@ type BackupReport struct {
 
 func Run(cfg *config.Config) *BackupReport {
 	report := &BackupReport{
-		Date:    time.Now().Format("2006-01-02"),
+		Date:    time.Now().In(modules.TzLoc()).Format("2006-01-02"),
 		Results: []*modules.BackupResult{},
 	}
 
